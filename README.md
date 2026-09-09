@@ -200,3 +200,90 @@ Full research (buzz architecture, omnigent's Lakebox integration patterns, live 
 **M2 — code complete, live acceptance pending**: `status`, `start`, `logs`, `stop`, and `undeploy` ship as operator CLI subcommands (the desktop still can't call them — Buzz's provider protocol has no v2 lifecycle ops). Live acceptance checks are tracked in docs/ACCEPTANCE.md.
 
 **M3 — hardening in place, live acceptance pending**: a failure taxonomy (stable code + remedy on every error), marker-secret fuzz across every deploy path plus credential-shaped scrubbing of any rendered log tail, executable double-launch/zombie/relaunch proofs against the real `launch.sh`, the `keep_workspace_pat` opt-out matrix, and [`docs/RUNBOOK.md`](docs/RUNBOOK.md). Live acceptance checks are tracked in docs/ACCEPTANCE.md and listed in the runbook's §9.
+
+### Compatibility with current Buzz Desktop
+
+The default sandbox payload is pinned to Buzz Desktop `v0.5.23` (release tag
+`desktop-v0.5.23`) and its published Linux `.deb` SHA-256. The provider accepts
+the current resolved `agent.launch` contract and retains
+legacy payload compatibility. When `launch` is present, its `policy_env` then
+`env` layers are authoritative, while the provider still owns identity, relay,
+spawn command, response gate, and MCP wiring. This carries thread-scoped
+sessions, lazy pools, team instructions, display/session titles, model/effort
+projection, and owner identity into the sandbox without re-merging stale
+legacy environment values.
+
+Deploys also refresh the embedded current Buzz CLI skill under
+`.agents/skills/buzz-cli` and create non-destructive harness-specific symlinks.
+Goose and Pi are intentionally not accepted yet: each needs a separately
+verified installer, inference bridge, ACP handshake, and skill contract rather
+than accidental command pass-through.
+
+## Configuring Databricks managed MCP servers
+
+Current Buzz Desktop accepts only scalar provider-config values, so this
+provider exposes a scalar `mcp_config` field containing compact, versioned JSON.
+The configuration is generic: it carries typed resource identifiers, never a
+workspace host, profile name, URL, or credential. The provider derives the host
+from `DATABRICKS_HOST` at runtime and passes the credential only in the bridge
+process environment.
+
+```json
+{"schema":"buzz-managed-mcp","version":1,"servers":[
+  {"name":"warehouse","kind":"sql","auth":"env"},
+  {"name":"space","kind":"genie","resource":["${GENIE_SPACE_ID}"],"auth":"env"},
+  {"name":"search","kind":"ai-search","resource":["${CATALOG}","${SCHEMA}","${INDEX}"],"auth":"env"},
+  {"name":"functions","kind":"functions","resource":["${CATALOG}","${SCHEMA}"],"auth":"env"},
+  {"name":"service","kind":"mcp-service","resource":["${CATALOG}","${SCHEMA}","${SERVICE}"],"auth":"env"},
+  {"name":"skills","kind":"skills","resource":["${CATALOG}","${SCHEMA}"],"auth":"env"}
+]}
+```
+
+The `${...}` strings above are documentation placeholders; substitute literal
+Unity Catalog/resource identifiers before submitting. Environment expansion is
+not performed. Supported kinds are `sql`, `genie`, `ai-search`, legacy
+schema-level `vector-search`, `functions` (schema or one function),
+`mcp-service`, `skills`, and `local`. Multiple skill scopes are represented as
+additional catalog/schema pairs in `resource`.
+
+Remote entries run through the embedded, pinned `bzhttpmcp` bridge. It accepts
+only typed same-workspace endpoints, requires HTTPS, forwards JSON and SSE
+Streamable HTTP responses, tracks MCP session IDs, and reads host/token only
+from `DATABRICKS_HOST`/`DATABRICKS_TOKEN`. `bzmux` gives each remote child only
+those two variables; it does not receive the Buzz private key or auth tag.
+Custom URLs and literal secret/env maps are not part of schema v1.
+
+Managed MCP is currently allowed only with `inference_auth: "env"` and
+`auth:"env"`. Sandbox-profile auth is reserved for a future per-request,
+least-privilege token refresher; the provider will not quietly expose the
+sandbox creator's owner-level credential to configured tools.
+
+## Synchronizing Databricks agent skills
+
+`provider_config.skills_config` accepts compact `buzz-skills` v1 JSON. It runs
+`databricks aitools install` noninteractively in `--skills-only` mode, validates
+the staged tree, and publishes safe skill directories into the persistent
+canonical `.agents/skills` path:
+
+```json
+{"schema":"buzz-skills","version":1,"aitools":{
+  "skills":["bundles","sql"],
+  "experimental":false,
+  "collision_policy":"fail"
+}}
+```
+
+An empty `skills` list requests the current default Databricks skill set.
+`collision_policy` defaults to `fail`; `replace-managed` can replace only a
+directory carrying the exact provenance marker written by this provider. The
+installer never overwrites `buzz-cli` or an unmanaged directory, rejects
+symlinks/special files and unsafe names, and caps output at 64 skills / 16 MiB.
+No source URL, profile, host, or credential can appear in the schema.
+
+For governed Unity Catalog Skills, configure a `kind:"skills"` entry in
+`mcp_config`. With no `resource`, it exposes only schema-less utility tools;
+with catalog/schema pairs, it exposes the live schema-backed Skills MCP, so
+updates do not require copying files into an existing sandbox. Point-in-time
+UC skill download is intentionally not automatic in schema v1; use the live
+Skills MCP or an owner-reviewed `ug configure skills --location ... --path ...`
+operation to avoid silently replacing governed executable content.

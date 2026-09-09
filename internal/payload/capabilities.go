@@ -74,6 +74,8 @@ func (r DeployRequest) validateCapabilityKeysOwnerPAT() error {
 		key = "extra_binaries"
 	case len(r.ProviderConfig.McpServers) > 0:
 		key = "mcp_servers"
+	case r.ProviderConfig.HasManagedMCP():
+		key = "mcp"
 	default:
 		return nil
 	}

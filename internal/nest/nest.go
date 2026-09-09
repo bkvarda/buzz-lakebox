@@ -271,6 +271,9 @@ func RenderEnv(agent payload.Agent, rt payload.Runtime, sandboxInferenceAuth boo
 	emit("BUZZ_ACP_AGENT_ARGS", strings.Join(agent.AgentArgs, ","))
 	emit("BUZZ_ACP_AGENTS", strconv.Itoa(agent.Parallelism))
 	emit("BUZZ_ACP_SYSTEM_PROMPT", agent.SystemPrompt)
+	if agent.OwnerPubkey != "" {
+		emit("BUZZ_ACP_AGENT_OWNER", agent.OwnerPubkey)
+	}
 	// Model selection is runtime-specific. buzz-acp applies BUZZ_ACP_MODEL
 	// as a per-session model switch; for the Claude runtime the desktop
 	// deliberately emits no model variable at all (discovery.rs claude

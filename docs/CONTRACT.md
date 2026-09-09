@@ -125,6 +125,92 @@ backend.rs:427-543: binaries named `buzz-backend-<id>` with the executable bit, 
 - Minimum `databricks` CLI version gate: **v1.8.0** — the version live-verified with the full `sandbox` command group (lane C/D probes). `doctor` and deploy preflight enforce ≥ this; every output records the actual version string (PLAN §3.1).
 - buzz-agent inference env (verified live, `docs/M05_PROBE_RESULTS.md` §2): `BUZZ_AGENT_PROVIDER` (`databricks_v2` | `databricks`), `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_MODEL`.
 - claude inference env (verified live, `docs/M2_CLAUDE_PROBE_RESULTS.md`): `ANTHROPIC_BASE_URL` = `{DATABRICKS_HOST}/ai-gateway/anthropic`, `ANTHROPIC_AUTH_TOKEN` = the Databricks token. Both are *derived in-shell* by `nest.ClaudeEnvSnippet`, appended after the `env_vars` block and after the zero-token snippet, so one identical text serves both `inference_auth` modes. Deliberately absent: any model variable (see the `model` row in §3), and `ANTHROPIC_API_KEY` — it produces an `x-api-key` header, which the gateway rejects with 401.
-- Adapter pin: `@agentclientprotocol/claude-agent-acp@0.63.0`, installed with `npm ci --ignore-scripts` against a committed `package-lock.json` (112 packages, every one integrity-pinned). Override with the expert-only `provider_config.claude_adapter_version`; an unpinned version fails loud rather than installing on trust.
-- Adapter pin: `@agentclientprotocol/codex-acp@1.1.7`, same mechanism (25 packages, every one integrity-pinned; `provider_config.codex_adapter_version` to override). Note the codex lockfile pins **six** platform variants and **no `-musl`** entry, unlike the claude one — the Lakebox sandbox image is glibc, but a musl base image would break `npm ci` rather than degrade.
+- Buzz payload pin: `v0.5.23` (release tag `desktop-v0.5.23`), `.deb` SHA-256 `94f1e50021f88f8864f568c86a8ea2b39993da64e3fe8d86bf731cd00c1c9cce`.
+- Adapter pin: `@agentclientprotocol/claude-agent-acp@0.73.0`, installed with `npm ci --ignore-scripts` against a committed `package-lock.json` (112 packages, every one integrity-pinned). Override with the expert-only `provider_config.claude_adapter_version`; an unpinned version fails loud rather than installing on trust.
+- Adapter pin: `@agentclientprotocol/codex-acp@1.8.0`, same mechanism (25 packages, every one integrity-pinned; `provider_config.codex_adapter_version` to override). Note the codex lockfile pins **six** platform variants and **no `-musl`** entry, unlike the claude one — the Lakebox sandbox image is glibc, but a musl base image would break `npm ci` rather than degrade.
 - **Bring-your-own endpoint requires bring-your-own token.** Setting `env_vars.ANTHROPIC_BASE_URL` without `ANTHROPIC_AUTH_TOKEN` is rejected at validation: the provider never attaches the workspace credential to an endpoint it did not derive, because in `inference_auth: "sandbox"` that credential is the sandbox's owner-level baked PAT.
+
+## 8. Current Buzz `agent.launch` compatibility
+
+Current Buzz Desktop sends a resolved `agent.launch` block in addition to the
+legacy top-level fields:
+
+```json
+{
+  "command": "buzz-agent",
+  "args": [],
+  "policy_env": {"BUZZ_ACP_SESSION_POLICY": "thread"},
+  "env": {"BUZZ_AGENT_PROVIDER": "databricks_v2"},
+  "owner_pubkey": "<hex>"
+}
+```
+
+When present, this block is authoritative. The provider applies `policy_env`
+first and `env` second, and does **not** merge legacy `env_vars` back on top.
+Provider-owned identity, relay, command/arguments, respond-to, and MCP values
+remain the final authority and are stripped from the lower tiers before the
+environment is rendered. `owner_pubkey` becomes `BUZZ_ACP_AGENT_OWNER`.
+This preserves current Desktop thread/channel session policy, lazy pools, team
+instructions, display/session titles, projected effort, and model/provider
+environment while remaining compatible with older payloads that omit `launch`.
+
+The supported runtime capability table remains deliberately narrower than the
+Desktop catalog: `buzz-agent`, Claude ACP, and Codex ACP are supported. Goose
+and Pi are rejected rather than accepted without their runtime installation,
+inference, verification, and skill-discovery contracts.
+
+## 9. Embedded Buzz CLI skill
+
+Every deploy refreshes the current Buzz CLI skill at
+`$HOME/.buzz/.agents/skills/buzz-cli/SKILL.md` and writes harness-specific
+symlinks for Claude, Codex, and Goose only when those paths do not already
+exist. Existing unmanaged skill directories are never overwritten. The skill
+content is embedded at build time from the current `block/buzz`
+`desktop/src-tauri/src/managed_agents/nest_skill.md`; it contains no workspace,
+profile, user, or credential values.
+
+## 10. Managed MCP schema v1
+
+`provider_config.mcp_config` is a scalar string containing this versioned JSON
+shape, suitable for current Desktop's scalar-only provider configuration:
+
+```json
+{"schema":"buzz-managed-mcp","version":1,"servers":[...]}
+```
+
+Each server has `name`, `kind`, optional typed `resource` components, and
+`auth:"env"`. It cannot represent a host, custom URL, profile, literal token,
+or literal environment value. Resource arity determines a documented
+same-workspace route. A single managed server still uses `bzmux`, because its
+typed bridge arguments cannot fit the legacy bare-command direct slot.
+
+The embedded `bzhttpmcp` bridge receives `DATABRICKS_HOST` and
+`DATABRICKS_TOKEN` through its per-child allowlist, constructs an HTTPS URL,
+rejects cross-host redirects, and supports JSON/SSE Streamable HTTP plus MCP
+session IDs. No token appears in argv, config, state, or diagnostics. Managed
+MCP remains incompatible with any owner-PAT-in-sandbox mode.
+
+The legacy operator-only `mcp_servers` array remains supported for local bare
+stdio commands. The object-form `mcp` is likewise operator-only and cannot be
+combined with scalar `mcp_config`; either managed form is mutually exclusive
+with `mcp_servers`.
+
+## 11. Skills schema v1
+
+`provider_config.skills_config` is a scalar compact JSON value with
+`schema:"buzz-skills"`, `version:1`, and an optional `aitools` object. It can
+select safe skill names, opt into experimental skills, and choose `fail` or
+`replace-managed` collision handling. It cannot carry a host, URL, profile,
+credential, environment expansion, or arbitrary destination path.
+
+The installer invokes `databricks aitools install --skills-only --path` against
+a private staging directory and consumes JSON command output. Before changing
+the canonical `.agents/skills` tree it validates top-level names, required
+`SKILL.md`, symlink/special-file absence, count/byte limits, reserved
+`buzz-cli`, and every collision. Replacement requires the exact provider
+provenance marker/version. Managed skill synchronization is refused when a
+sandbox owner credential remains reachable.
+
+Live governed Unity Catalog Skills use the managed MCP schema's `skills` kind.
+That path scopes schemas in the same-workspace route and loads current skill
+content at session time. Automated UC file download is not part of schema v1.

@@ -387,3 +387,28 @@ func TestRenderLaunchScript_LivenessGuardInvariants(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderEnv_CurrentLaunchOwnerIsAuthoritative(t *testing.T) {
+	agent := payload.Agent{
+		RelayURL:       "wss://relay.example",
+		PrivateKeyNsec: "nsec1x",
+		AuthTag:        "tag",
+		AgentCommand:   "buzz-agent",
+		Parallelism:    1,
+		OwnerPubkey:    strings.Repeat("a", 64),
+		EnvVars: map[string]string{
+			"BUZZ_ACP_SESSION_POLICY": "thread",
+			"BUZZ_ACP_LAZY_POOL":      "true",
+		},
+	}
+	env := RenderEnv(agent, payload.RuntimeBuzzAgent, false, "")
+	for _, want := range []string{
+		"export BUZZ_ACP_AGENT_OWNER='" + strings.Repeat("a", 64) + "'",
+		"export BUZZ_ACP_SESSION_POLICY='thread'",
+		"export BUZZ_ACP_LAZY_POOL='true'",
+	} {
+		if !strings.Contains(env, want) {
+			t.Fatalf("rendered env missing %q:\n%s", want, env)
+		}
+	}
+}

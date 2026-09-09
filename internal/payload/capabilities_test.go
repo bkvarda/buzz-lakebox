@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IceRhymers/buzz-lakebox/internal/mcpconfig"
+	"github.com/IceRhymers/buzz-lakebox/internal/skillconfig"
+
 	"github.com/IceRhymers/buzz-lakebox/internal/install"
 )
 
@@ -355,5 +358,80 @@ func TestValidate_ExtraBinariesBinRejectsMuxBinaryName(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), MuxBinaryName) {
 		t.Errorf("rejection must name %q, got: %v", MuxBinaryName, err)
+	}
+}
+
+func TestValidate_ManagedMCP(t *testing.T) {
+	req := capReq(ProviderConfig{InferenceAuth: "env"})
+	req.ProviderConfig.MCP = mcpconfig.Config{
+		Schema: mcpconfig.CurrentSchema, Version: mcpconfig.CurrentVersion,
+		Servers: []mcpconfig.Server{{Name: "sql", Kind: mcpconfig.KindSQL, Auth: mcpconfig.AuthEnv}},
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("valid managed MCP rejected: %v", err)
+	}
+	if req.ProviderConfig.McpMode() != McpMux || !req.ProviderConfig.HasManagedMCP() {
+		t.Fatal("managed MCP must use the mux so typed bridge args are preserved")
+	}
+
+	req.ProviderConfig.McpServers = []string{"legacy"}
+	if err := req.Validate(); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("expected mutual-exclusion error, got %v", err)
+	}
+}
+
+func TestValidate_ManagedMCPRefusedWithOwnerCredential(t *testing.T) {
+	req := capReq(ProviderConfig{InferenceAuth: "sandbox"})
+	req.ProviderConfig.MCP = mcpconfig.Config{
+		Schema: mcpconfig.CurrentSchema, Version: mcpconfig.CurrentVersion,
+		Servers: []mcpconfig.Server{{Name: "sql", Kind: mcpconfig.KindSQL, Auth: mcpconfig.AuthSandboxProfile}},
+	}
+	if err := req.Validate(); err == nil || !strings.Contains(err.Error(), "provider_config.mcp") {
+		t.Fatalf("owner credential must refuse managed MCP: %v", err)
+	}
+}
+
+func TestParseDeployRequest_MCPConfigScalarJSON(t *testing.T) {
+	managed := `{"schema":"buzz-managed-mcp","version":1,"servers":[{"name":"warehouse","kind":"sql","auth":"env"}]}`
+	body := fmt.Sprintf(`{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","agent_command":"codex-acp"},"provider_config":{"inference_auth":"env","mcp_config":%q}}`, managed)
+	req, err := ParseDeployRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(req.ProviderConfig.MCP.Servers) != 1 || req.ProviderConfig.MCP.Servers[0].Kind != mcpconfig.KindSQL {
+		t.Fatalf("scalar MCP JSON not parsed: %#v", req.ProviderConfig.MCP)
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParseDeployRequest_MCPConfigRejectsLiteralHost(t *testing.T) {
+	managed := `{"schema":"buzz-managed-mcp","version":1,"servers":[],"url":"https://workspace.example"}`
+	body := fmt.Sprintf(`{"op":"deploy","agent":{},"provider_config":{"mcp_config":%q}}`, managed)
+	if _, err := ParseDeployRequest([]byte(body)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("expected custom host rejection, got %v", err)
+	}
+}
+
+func TestParseDeployRequest_SkillsConfig(t *testing.T) {
+	skills := `{"schema":"buzz-skills","version":1,"aitools":{"skills":["bundles","sql"],"collision_policy":"replace-managed"}}`
+	body := fmt.Sprintf(`{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","agent_command":"buzz-agent"},"provider_config":{"inference_auth":"env","skills_config":%q}}`, skills)
+	req, err := ParseDeployRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !req.ProviderConfig.HasSkills() || len(req.ProviderConfig.Skills.AITools.Skills) != 2 {
+		t.Fatalf("skills config not parsed: %#v", req.ProviderConfig.Skills)
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidate_SkillsConfigRefusesOwnerCredential(t *testing.T) {
+	req := capReq(ProviderConfig{InferenceAuth: "sandbox", Skills: skillconfig.Config{Schema: skillconfig.CurrentSchema, Version: 1, AITools: &skillconfig.AITools{}}})
+	if err := req.Validate(); err == nil || !strings.Contains(err.Error(), "skills_config") {
+		t.Fatalf("expected skills owner-credential rejection, got %v", err)
 	}
 }
