@@ -116,29 +116,21 @@ func TestAdapterSpecs_Coherent(t *testing.T) {
 	}
 }
 
-// claudeInstallScriptDigest0_63_0 is the sha256 of the EXACT script the
-// renderer produced for claude-agent-acp@0.63.0 before this package was
-// generalized from a single hardcoded adapter to a per-runtime spec table.
+// claudeInstallScriptDigest0_73_0 is the sha256 of the exact script rendered
+// for the pinned adapter and integrity lockfile. A dependency or renderer
+// change must update this review artifact deliberately.
 //
-// It is the same doctrine as nest's buzzAgentBaselineEnv: adding a runtime
-// must not perturb what already-shipped deploys get, and a substring
-// assertion cannot detect a reordering, an inserted line, or a changed value
-// elsewhere in a 54 KB script. The diff to this constant IS the review
-// artifact — if it changes, either the claude install genuinely changed (say
-// so in the commit message) or the refactor was not the no-op it claimed.
-// Refreshed 2026-08-26 (issue #27): the embedded 0.63.0 lockfile was
-// regenerated to clear fast-uri GHSA-7p8r-x3mc-p8w7 (high) and the hono
-// moderates. Same adapter version pin; the transitive tree re-resolved to
-// current within-range releases, so the rendered script's bytes changed.
-const claudeInstallScriptDigest0_63_0 = "0ca168a18fb4ed8b7d4d010a6b3d876d5e2597e9e64a50bd7e9b8cf8077f9d72"
+// Refreshed 2026-09-09 when the adapter advanced from 0.63.0 to 0.73.0 to
+// clear the current fast-uri high-severity advisories.
+const claudeInstallScriptDigest0_73_0 = "8ebd1def734ca8fea480efcca8ffbe4565e2b2a4a09e590867ad59e6e1055bb2"
 
 func TestBuildAdapterInstallScript_ClaudeByteIdenticalToBaseline(t *testing.T) {
-	script, err := BuildAdapterInstallScript("claude-agent-acp", "0.63.0")
+	script, err := BuildAdapterInstallScript("claude-agent-acp", "0.73.0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(script))); got != claudeInstallScriptDigest0_63_0 {
-		t.Errorf("claude adapter install script changed.\n got sha256 = %s\nwant sha256 = %s\n(%d bytes rendered)", got, claudeInstallScriptDigest0_63_0, len(script))
+	if got := fmt.Sprintf("%x", sha256.Sum256([]byte(script))); got != claudeInstallScriptDigest0_73_0 {
+		t.Errorf("claude adapter install script changed.\n got sha256 = %s\nwant sha256 = %s\n(%d bytes rendered)", got, claudeInstallScriptDigest0_73_0, len(script))
 	}
 }
 
@@ -234,12 +226,12 @@ func TestBuildAdapterInstallScript_UnknownVersionFailsLoud(t *testing.T) {
 // marker would silently skip it, leaving a stale tree that no longer
 // matches the committed pin.
 func TestAdapterStamp_IncludesLockfileHash(t *testing.T) {
-	a := adapterStamp("0.63.0", []byte(`{"a":1}`))
-	b := adapterStamp("0.63.0", []byte(`{"a":2}`))
+	a := adapterStamp("0.73.0", []byte(`{"a":1}`))
+	b := adapterStamp("0.73.0", []byte(`{"a":2}`))
 	if a == b {
 		t.Fatal("stamp must change when the lockfile changes at the same version")
 	}
-	if !strings.HasPrefix(a, "0.63.0+") {
+	if !strings.HasPrefix(a, "0.73.0+") {
 		t.Fatalf("stamp should remain human-readable at the version prefix, got %q", a)
 	}
 }

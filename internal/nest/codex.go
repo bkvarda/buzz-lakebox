@@ -105,7 +105,7 @@ const CodexDefaultModel = "databricks-gpt-5-3-codex"
 // as "unset" rather than launching against a controlled config.
 //
 // WHAT IS DELIBERATELY NOT EMITTED: sandbox_mode and approval_policy. Both
-// are INERT under @agentclientprotocol/codex-acp@1.1.7, and not merely
+// are INERT under @agentclientprotocol/codex-acp@1.8.0, and not merely
 // unobserved-to-work: the adapter applies an AgentMode preset per session
 // that supersedes the file (docs/M3_CODEX_PROBE_RESULTS.md S7 measured a
 // config.toml sandbox_mode="read-only" permitting writes; S10 read the

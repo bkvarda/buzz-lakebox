@@ -81,7 +81,7 @@ func TestRenderEnv_CodexGetsBuzzTooling(t *testing.T) {
 
 // TestRenderEnv_CodexNoInertSandboxKeys pins the omission so it cannot be
 // "fixed" by a reader who never opens codex.go. sandbox_mode and
-// approval_policy are inert under codex-acp@1.1.7: the adapter applies an
+// approval_policy are inert under codex-acp@1.8.0: the adapter applies an
 // AgentMode preset per session that supersedes the file
 // (docs/M3_CODEX_PROBE_RESULTS.md S7 measured read-only permitting writes;
 // S10 read the mechanism out of the adapter source). Emitting them would put

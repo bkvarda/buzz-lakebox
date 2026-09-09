@@ -17,13 +17,14 @@ import (
 // DefaultVersion is the build-time-pinned Buzz release installed when a
 // deploy request's provider_config.buzz_version is empty
 // (docs/PLAN.md §4.4 step 5).
-const DefaultVersion = "v0.4.24"
+const DefaultVersion = "v0.5.23"
 
 // releaseRepo is the GitHub repository Buzz release .deb assets are
 // fetched from. URL template verified live 2026-07-24:
-// https://github.com/block/buzz/releases/download/v0.4.24/Buzz_0.4.24_amd64.deb
-// resolves (302 to the asset CDN), and the release listing shows the
-// Buzz_<ver>_amd64.deb naming holds on newer tags (v0.4.25).
+// https://github.com/block/buzz/releases/download/desktop-v0.5.23/Buzz_0.5.23_amd64.deb
+// resolves to the release asset CDN. Desktop release tags gained the
+// `desktop-` prefix after the original provider pin, while asset names keep
+// the plain semantic version.
 const releaseRepo = "block/buzz"
 
 // pinnedSHA256 maps a known Buzz release version to its published .deb
@@ -31,7 +32,7 @@ const releaseRepo = "block/buzz"
 // overriding version without a known sha fails loud rather than skipping
 // verification").
 var pinnedSHA256 = map[string]string{
-	DefaultVersion: "ee9e58cf92707993f24f2eed18721ece6029e0b869c71770ad4a5d6e05f820d2",
+	DefaultVersion: "94f1e50021f88f8864f568c86a8ea2b39993da64e3fe8d86bf731cd00c1c9cce",
 }
 
 // BinNames are the executables symlinked into $HOME/.buzz-backend/bin
@@ -77,12 +78,17 @@ func BuildInstallScript(version string) (string, error) {
 	if version == "" {
 		version = DefaultVersion
 	}
+	version = strings.TrimPrefix(version, "desktop-")
 	sha, ok := pinnedSHA256[version]
 	if !ok {
 		return "", UnknownVersionError{Version: version}
 	}
 
-	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/Buzz_%s_amd64.deb", releaseRepo, version, strings.TrimPrefix(version, "v"))
+	releaseTag := version
+	if strings.HasPrefix(version, "v0.5.") {
+		releaseTag = "desktop-" + version
+	}
+	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/Buzz_%s_amd64.deb", releaseRepo, releaseTag, strings.TrimPrefix(version, "v"))
 
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
@@ -147,7 +153,7 @@ const InitializeFrame = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":
 // It is shared by EVERY runtime, which was not a given: the ACP spec makes
 // agentInfo optional, and buzz-acp itself tolerates its absence (reads
 // agentInfo or serverInfo, then defaults to "unknown"). Probed live against
-// claude-agent-acp@0.63.0 (docs/M2_CLAUDE_PROBE_RESULTS.md P5), whose reply
+// claude-agent-acp@0.73.0 (docs/M2_CLAUDE_PROBE_RESULTS.md P5), whose reply
 // carries `"agentInfo":{"name":"@agentclientprotocol/claude-agent-acp",...}`
 // — so no per-runtime marker is needed and VerifySpec carries only a path.
 const AgentInfoMarker = "agentInfo"

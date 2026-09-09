@@ -50,7 +50,7 @@ func TestDeploy_ExtraBinaries_InstalledInOrder(t *testing.T) {
 func TestDeploy_ExtraBinaries_InstalledAfterAdapter(t *testing.T) {
 	h := newHarness(t)
 	setHappyPathEnv(t)
-	t.Setenv("FAKE_VERIFY_OUTPUT", `{"jsonrpc":"2.0","id":1,"result":{"agentInfo":{"name":"@agentclientprotocol/claude-agent-acp","version":"0.63.0"}}}`)
+	t.Setenv("FAKE_VERIFY_OUTPUT", `{"jsonrpc":"2.0","id":1,"result":{"agentInfo":{"name":"@agentclientprotocol/claude-agent-acp","version":"0.73.0"}}}`)
 	t.Setenv("FAKE_LIST_JSON", "[]")
 	t.Setenv("FAKE_CREATE_ID", "sandbox-extrabin-claude-1")
 
