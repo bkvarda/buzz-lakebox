@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/IceRhymers/buzz-lakebox/internal/identity"
+	"github.com/IceRhymers/buzz-lakebox/internal/install"
 	"github.com/IceRhymers/buzz-lakebox/internal/lakebox"
 	"github.com/IceRhymers/buzz-lakebox/internal/nest"
 	"github.com/IceRhymers/buzz-lakebox/internal/payload"
@@ -429,6 +430,7 @@ const testLaunchID = "testlaunch01"
 // this launch's marker. The fixture therefore represents the scoped region,
 // not the raw file.
 const healthyLog = "buzz-acp starting: relay=wss://x pubkey=abc\nagent_pool_ready agents=1\n"
+const lazyHealthyLog = "buzz-acp starting: relay=wss://x pubkey=abc\npresence set to online\n"
 
 // staleScopedLog is what verify-check returns when this deploy's launch
 // marker is absent from acp.log — awk finds nothing to scope to and emits
@@ -447,6 +449,20 @@ func setHappyPathEnv(t *testing.T) {
 }
 
 // --- (a) happy-path fresh deploy --------------------------------------------
+
+func TestDeploy_HappyPath_LazyPoolUsesOnlinePresenceReadiness(t *testing.T) {
+	h := newHarness(t)
+	setHappyPathEnv(t)
+	t.Setenv("FAKE_ACP_LOG", lazyHealthyLog)
+	t.Setenv("FAKE_LIST_JSON", "[]")
+	t.Setenv("FAKE_CREATE_ID", "sandbox-lazy-ready")
+	t.Setenv("FAKE_CREATE_STATUS", "Running")
+
+	req := buildReq(reqOpts{})
+	if _, err := h.dep.Deploy(req); err != nil {
+		t.Fatalf("lazy listening-ready deploy failed: %v", err)
+	}
+}
 
 func TestDeploy_HappyPath_FreshCreate(t *testing.T) {
 	h := newHarness(t)
@@ -919,13 +935,13 @@ func TestResolveMcpCommand(t *testing.T) {
 			t.Fatalf("McpDirect must resolve to the single entry, got %q", got)
 		}
 	})
-	t.Run("McpMux resolves to bzmux (Increment 2 landed)", func(t *testing.T) {
+	t.Run("McpMux resolves to the environment launcher", func(t *testing.T) {
 		got, err := resolveMcpCommand(payload.ProviderConfig{McpServers: []string{"buzz-dev-mcp", "shellbox-mcp"}})
 		if err != nil {
 			t.Fatalf("McpMux must not error after Increment 2: %v", err)
 		}
-		if got != payload.MuxBinaryName {
-			t.Fatalf("McpMux must resolve to %q, got %q", payload.MuxBinaryName, got)
+		if got != install.MuxLaunchName {
+			t.Fatalf("McpMux must resolve to %q, got %q", install.MuxLaunchName, got)
 		}
 	})
 }
@@ -968,7 +984,7 @@ func TestDeploy_DatabricksSkillsRunAfterBuzzSkill(t *testing.T) {
 	for _, e := range h.events() {
 		if e.kind == "SSH" && e.sshTag == "skills-write" {
 			script := e.stdin(t)
-			for _, want := range []string{"databricks aitools install --skills-only", "--skills 'sql'", "buzz-cli", "replace-managed"} {
+			for _, want := range []string{"databricks aitools install --path", "--skills 'sql'", "buzz-cli", "replace-managed"} {
 				if !strings.Contains(script, want) {
 					t.Fatalf("skills script missing %q", want)
 				}

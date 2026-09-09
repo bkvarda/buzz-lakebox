@@ -23,7 +23,7 @@ const (
 
 // BuildSkillsInstallScript validates cfg and renders a POSIX sh script that
 // synchronizes the optional Databricks aitools skills into SkillsDir. The
-// command only performs a local skills-only install into a private staging
+// command only performs a local raw-skill install into a private staging
 // directory; workspace/profile/URL/auth inputs cannot be represented by cfg.
 //
 // Staged output is treated as hostile: every top-level entry must be a safe,
@@ -43,7 +43,10 @@ func BuildSkillsInstallScript(cfg skillconfig.Config) (string, error) {
 	policy := ai.EffectiveCollisionPolicy()
 
 	var command strings.Builder
-	command.WriteString("databricks aitools install --skills-only --path \"$STAGING\" --output json")
+	// --path is already the noninteractive raw-skill mode. Current aitools
+	// rejects both --skills-only and --output json when --path is present, so
+	// combining those flags makes every live skill sync fail before staging.
+	command.WriteString("databricks aitools install --path \"$STAGING\"")
 	if len(ai.Skills) > 0 {
 		// Identifiers were validated to exclude comma and shell syntax. Quoting is
 		// still mandatory because this is configuration-derived text.

@@ -587,13 +587,11 @@ func (d *Deployer) provision(ctx context.Context, profile, sandboxID string, fre
 // time with a clear message rather than shipping an agent that silently
 // renders an empty BUZZ_ACP_MCP_COMMAND and can never answer.
 //
-// McpMux (2+ entries): Increment 2 delivers the bzmux binary and its
-// mcp-mux.json config via installMux (called from installAndVerify). This
-// function returns payload.MuxBinaryName ("bzmux") for this mode so
-// BUZZ_ACP_MCP_COMMAND points at the multiplexer after installMux has placed
-// it on PATH. The deploy-time self-test (mux-selftest) ensures bzmux boots
-// before the agent is launched — preventing the live-bitten failure class
-// where a deploy passes ACP verification but the agent is permanently tool-less.
+// McpMux (2+ entries): installMux delivers bzmux, its mcp-mux.json, and a
+// provider-owned launcher. BUZZ_ACP_MCP_COMMAND points at that launcher so the
+// MCP process can restore provider env after buzz-agent's env_clear; bzmux then
+// applies each child's least-privilege allowlist. Deploy-time verification
+// prevents shipping a live-bitten agent.
 func resolveMcpCommand(cfg payload.ProviderConfig) (string, error) {
 	switch cfg.McpMode() {
 	case payload.McpDirect:
@@ -604,11 +602,11 @@ func resolveMcpCommand(cfg payload.ProviderConfig) (string, error) {
 		}
 		return cmd, nil
 	case payload.McpMux:
-		// Increment 2: return the multiplexer's bare name. MuxBinDir equals
-		// the .deb BinDir ($HOME/.buzz-backend/bin) which is on the sandbox
-		// PATH, so "bzmux" resolves without an absolute path. installMux
-		// writes the binary and config before this command is ever used.
-		return payload.MuxBinaryName, nil
+		// Use the provider-owned launcher rather than the raw multiplexer. The
+		// Buzz agent intentionally clears MCP process environments and does not
+		// pass workspace credentials; the launcher restores the provider env
+		// inside the child before bzmux applies per-server allowlists.
+		return install.MuxLaunchName, nil
 	default: // payload.McpNone
 		return "", nil
 	}
@@ -1057,10 +1055,7 @@ func (d *Deployer) installMux(ctx context.Context, profile, sandboxID string, cf
 	// Step mux-bin-write: write the embedded bzmux binary over stdin and
 	// chmod 755 in the same command, so binary bytes never appear in argv.
 	if _, err := d.SSH.RunWithStdin(ctx, profile, sandboxID,
-		step("mux-bin-write", fmt.Sprintf(
-			`set -eu; umask 077; mkdir -p %s; cat > %s && chmod 755 %s`,
-			dquote(install.MuxBinDir), dquote(install.MuxBinPath), dquote(install.MuxBinPath),
-		)),
+		step("mux-bin-write", atomicExecutableWriteCommand(install.MuxBinDir, install.MuxBinPath)),
 		bytes.NewReader(muxbin.Binary),
 	); err != nil {
 		return failf(CodeMuxWrite, "mcp multiplexer: write binary: %w", err)
@@ -1068,14 +1063,25 @@ func (d *Deployer) installMux(ctx context.Context, profile, sandboxID string, cf
 
 	if cfg.HasManagedMCP() {
 		if _, err := d.SSH.RunWithStdin(ctx, profile, sandboxID,
-			step("http-mcp-bin-write", fmt.Sprintf(
-				`set -eu; umask 077; mkdir -p %s; cat > %s && chmod 755 %s`,
-				dquote(install.MuxBinDir), dquote(install.HTTPMCPBinPath), dquote(install.HTTPMCPBinPath),
-			)),
+			step("http-mcp-bin-write", atomicExecutableWriteCommand(install.MuxBinDir, install.HTTPMCPBinPath)),
 			bytes.NewReader(httpmcpbin.Binary),
 		); err != nil {
 			return failf(CodeMuxWrite, "managed MCP: write Streamable HTTP bridge: %w", err)
 		}
+	}
+
+	// Write a provider-owned launcher that restores the full launch environment
+	// after buzz-agent's MCP env_clear, then execs bzmux. The launcher contains
+	// no secret values and bzmux still forwards only each child's allowlist.
+	launcher := fmt.Sprintf("#!/bin/sh\nset -eu\nset -a\n. %s\nset +a\nexec %s\n", dquote(nest.EnvFilePath), dquote(install.MuxBinPath))
+	if _, err := d.SSH.RunWithStdin(ctx, profile, sandboxID,
+		step("mux-launcher-write", fmt.Sprintf(
+			`set -eu; umask 077; cat > %s && chmod 700 %s`,
+			dquote(install.MuxLaunchPath), dquote(install.MuxLaunchPath),
+		)),
+		strings.NewReader(launcher),
+	); err != nil {
+		return failf(CodeMuxWrite, "mcp multiplexer: write environment launcher: %w", err)
 	}
 
 	// Step mux-cfg-write: write the JSON config over stdin and chmod 600
@@ -1132,6 +1138,13 @@ func (d *Deployer) mcpVerify(ctx context.Context, profile, sandboxID, mode, slot
 	return nil
 }
 
+// atomicExecutableWriteCommand stages executable bytes beside dest and renames
+// them into place. Replacing a running Unix executable this way avoids ETXTBSY
+// on rapid redeploy while never exposing a partially written binary.
+func atomicExecutableWriteCommand(dir, dest string) string {
+	return fmt.Sprintf(`set -eu; umask 077; mkdir -p %s; tmp=%s.tmp.$$; trap 'rm -f "$tmp"' EXIT; cat > "$tmp"; chmod 755 "$tmp"; mv -f "$tmp" %s; trap - EXIT`, dquote(dir), dquote(dest), dquote(dest))
+}
+
 // installMcpDirect implements the McpDirect half of #17: it writes the embedded
 // bzmux binary (mcp-bin-write, mirroring mux-bin-write — bzmux is inert unless
 // invoked, since BUZZ_ACP_MCP_COMMAND still points at the direct command) and
@@ -1142,10 +1155,7 @@ func (d *Deployer) installMcpDirect(ctx context.Context, profile, sandboxID, slo
 	// 755 in the same command, so binary bytes never appear in argv (mirrors
 	// mux-bin-write).
 	if _, err := d.SSH.RunWithStdin(ctx, profile, sandboxID,
-		step("mcp-bin-write", fmt.Sprintf(
-			`set -eu; umask 077; mkdir -p %s; cat > %s && chmod 755 %s`,
-			dquote(install.MuxBinDir), dquote(install.MuxBinPath), dquote(install.MuxBinPath),
-		)),
+		step("mcp-bin-write", atomicExecutableWriteCommand(install.MuxBinDir, install.MuxBinPath)),
 		bytes.NewReader(muxbin.Binary),
 	); err != nil {
 		return failf(CodeMuxWrite, "mcp multiplexer: write binary: %w", err)
@@ -1286,6 +1296,16 @@ func (d *Deployer) verifyLaunch(ctx context.Context, profile, sandboxID, launchI
 			d.verifyDelay())
 	}
 	if !strings.Contains(logOut, agentPoolReadyMarker) {
+		// Current Buzz lazy-pool mode intentionally defers spawning agents until
+		// work arrives, so it never emits agent_pool_ready during an idle deploy.
+		// Presence is published only after relay connection, membership/channel
+		// subscriptions, and harness initialization, making it the equivalent
+		// listening-ready signal for a lazy pool. In eager mode the same presence
+		// line is emitted only after the pool initialized, so it remains a safe
+		// readiness boundary in both modes.
+		if strings.Contains(logOut, "presence set to online") {
+			return nil
+		}
 		return failf(CodeVerifyNotReady, "verify: acp.log did not contain %q within %s; log: %s", agentPoolReadyMarker, d.verifyDelay(), strings.TrimSpace(logOut))
 	}
 	return nil

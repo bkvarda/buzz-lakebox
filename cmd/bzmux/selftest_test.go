@@ -194,11 +194,11 @@ func TestSelftest_NilAgentOut_ChildNotification(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestSelftest_FailsOnProtocolVersionMismatch
-// A child reporting a different protocolVersion → exit non-zero with a clear
-// message.
+// TestSelftest_AllowsNegotiatedProtocolVersion
+// A child may select a different supported protocolVersion than the client
+// offered; that negotiated result is not a transport failure.
 // ---------------------------------------------------------------------------
-func TestSelftest_FailsOnProtocolVersionMismatch(t *testing.T) {
+func TestSelftest_AllowsNegotiatedProtocolVersion(t *testing.T) {
 	cfg := &muxcfg.Config{
 		Servers: []muxcfg.Server{
 			fakeSrvST(t, "srv-a", "toolA", nil), // default pv "2024-11-05"
@@ -208,10 +208,10 @@ func TestSelftest_FailsOnProtocolVersionMismatch(t *testing.T) {
 		},
 	}
 	out, code := runST(t, cfg)
-	if code == 0 {
-		t.Fatalf("selftest expected non-zero exit for protocolVersion mismatch; got exit 0\noutput: %s", out)
+	if code != 0 {
+		t.Fatalf("selftest should accept a child-selected protocol version; got exit %d\noutput: %s", code, out)
 	}
-	if !strings.Contains(out, "protocolVersion") && !strings.Contains(out, "mismatch") {
-		t.Errorf("selftest output should mention protocolVersion/mismatch; got:\n%s", out)
+	if !strings.Contains(out, "OK") {
+		t.Errorf("selftest output should contain OK; got:\n%s", out)
 	}
 }

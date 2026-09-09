@@ -76,7 +76,7 @@ func TestBridgeJSONHeadersAndSession(t *testing.T) {
 	if err := b.run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	want := "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n"
+	want := "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n"
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}
@@ -178,6 +178,23 @@ func TestBridgeResponseErrors(t *testing.T) {
 				t.Fatal("expected error")
 			}
 		})
+	}
+}
+
+func TestBridgeIgnoresSuccessfulNotificationAcknowledgementBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, "200 OK")
+	}))
+	defer server.Close()
+	var stdout bytes.Buffer
+	input := strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}` + "\n")
+	b := newBridge(server.Client(), endpointForServer(t, server), "token", input, &stdout, io.Discard)
+	if err := b.run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
 

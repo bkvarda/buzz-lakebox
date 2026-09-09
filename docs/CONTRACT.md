@@ -187,8 +187,11 @@ typed bridge arguments cannot fit the legacy bare-command direct slot.
 The embedded `bzhttpmcp` bridge receives `DATABRICKS_HOST` and
 `DATABRICKS_TOKEN` through its per-child allowlist, constructs an HTTPS URL,
 rejects cross-host redirects, and supports JSON/SSE Streamable HTTP plus MCP
-session IDs. No token appears in argv, config, state, or diagnostics. Managed
-MCP remains incompatible with any owner-PAT-in-sandbox mode.
+session IDs. Because current `buzz-agent` clears MCP child environments, a
+provider-owned launcher sources the provider's 0600 env file before execing
+`bzmux`; the mux then enforces every child's allowlist. No token appears in
+argv, mux config, provider state, or diagnostics. Managed MCP remains
+incompatible with any owner-PAT-in-sandbox mode.
 
 The legacy operator-only `mcp_servers` array remains supported for local bare
 stdio commands. The object-form `mcp` is likewise operator-only and cannot be
@@ -203,9 +206,10 @@ select safe skill names, opt into experimental skills, and choose `fail` or
 `replace-managed` collision handling. It cannot carry a host, URL, profile,
 credential, environment expansion, or arbitrary destination path.
 
-The installer invokes `databricks aitools install --skills-only --path` against
-a private staging directory and consumes JSON command output. Before changing
-the canonical `.agents/skills` tree it validates top-level names, required
+The installer invokes `databricks aitools install --path` against a private
+staging directory. (`--path` is the noninteractive raw-skill mode; current
+`aitools` rejects combining it with `--skills-only` or JSON output.) Before
+changing the canonical `.agents/skills` tree it validates top-level names, required
 `SKILL.md`, symlink/special-file absence, count/byte limits, reserved
 `buzz-cli`, and every collision. Replacement requires the exact provider
 provenance marker/version. Managed skill synchronization is refused when a

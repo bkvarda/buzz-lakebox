@@ -54,11 +54,13 @@ func (b *bridge) run(ctx context.Context) error {
 		}
 		payload := append([]byte(nil), line...)
 		var message struct {
-			Method string `json:"method"`
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
 		}
 		_ = json.Unmarshal(payload, &message)
+		isNotification := message.Method != "" && len(message.ID) == 0
 		if message.Method == "initialize" {
-			if err := b.exchange(ctx, payload); err != nil {
+			if err := b.exchange(ctx, payload, false); err != nil {
 				cancel()
 				wg.Wait()
 				return err
@@ -68,7 +70,7 @@ func (b *bridge) run(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := b.exchange(ctx, payload); err != nil {
+			if err := b.exchange(ctx, payload, isNotification); err != nil {
 				select {
 				case errs <- err:
 					cancel()
@@ -91,7 +93,7 @@ func (b *bridge) run(ctx context.Context) error {
 	}
 }
 
-func (b *bridge) exchange(ctx context.Context, payload []byte) error {
+func (b *bridge) exchange(ctx context.Context, payload []byte, notification bool) error {
 	b.rememberProtocolVersion(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.endpoint.String(), bytes.NewReader(payload))
 	if err != nil {
@@ -134,6 +136,14 @@ func (b *bridge) exchange(ctx context.Context, payload []byte) error {
 	mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
 		return fmt.Errorf("invalid MCP response Content-Type")
+	}
+	// JSON-RPC notifications have no response. Some Databricks managed MCP
+	// endpoints acknowledge them with a small text/plain status body instead
+	// of 202/204. Ignore successful notification bodies so that this wire-level
+	// acknowledgement cannot poison stdio with non-JSON or fail the session.
+	if notification {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		return nil
 	}
 	switch strings.ToLower(mediaType) {
 	case "application/json":
