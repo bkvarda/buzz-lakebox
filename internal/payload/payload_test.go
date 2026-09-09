@@ -94,6 +94,61 @@ func TestParseDeployRequest_TolerantOfUnknownFields(t *testing.T) {
 	}
 }
 
+func TestParseDeployRequest_CurrentLaunchIsAuthoritative(t *testing.T) {
+	body := `{
+	  "op":"deploy",
+	  "agent":{
+	    "relay_url":"wss://relay.example","private_key_nsec":"nsec1x","auth_tag":"tag",
+	    "agent_command":"stale-command","agent_args":["stale"],
+	    "system_prompt":"stale prompt","parallelism":99,
+	    "env_vars":{"STALE":"must-not-return","BUZZ_ACP_SESSION_POLICY":"channel"},
+	    "launch":{
+	      "command":"buzz-agent","args":["--fresh"],
+	      "policy_env":{"BUZZ_ACP_AGENTS":"4","BUZZ_ACP_SYSTEM_PROMPT":"fresh prompt","BUZZ_ACP_SESSION_POLICY":"thread","BUZZ_ACP_LAZY_POOL":"true","BUZZ_ACP_AGENT_COMMAND":"spoof"},
+	      "env":{"USER_KEY":"user-value","BUZZ_ACP_SESSION_POLICY":"user-thread","BUZZ_PRIVATE_KEY":"spoof","BUZZ_ACP_RELAY_OBSERVER":"false"},
+	      "owner_pubkey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	    }
+	  }
+	}`
+	req, err := ParseDeployRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Agent.AgentCommand != "buzz-agent" || len(req.Agent.AgentArgs) != 1 || req.Agent.AgentArgs[0] != "--fresh" {
+		t.Fatalf("launch command/args not authoritative: %#v", req.Agent)
+	}
+	if req.Agent.SystemPrompt != "fresh prompt" || req.Agent.Parallelism != 4 {
+		t.Fatalf("launch policy fields not projected: prompt=%q parallelism=%d", req.Agent.SystemPrompt, req.Agent.Parallelism)
+	}
+	if req.Agent.OwnerPubkey != strings.Repeat("a", 64) {
+		t.Fatalf("owner pubkey not projected: %q", req.Agent.OwnerPubkey)
+	}
+	if _, ok := req.Agent.EnvVars["STALE"]; ok {
+		t.Fatal("legacy env_vars must not be re-merged when launch is present")
+	}
+	if got := req.Agent.EnvVars["BUZZ_ACP_SESSION_POLICY"]; got != "user-thread" {
+		t.Fatalf("launch.env must win over policy_env, got %q", got)
+	}
+	if got := req.Agent.EnvVars["USER_KEY"]; got != "user-value" {
+		t.Fatalf("launch.env missing user value: %q", got)
+	}
+	for _, key := range []string{"BUZZ_ACP_AGENT_COMMAND", "BUZZ_PRIVATE_KEY", "BUZZ_ACP_RELAY_OBSERVER"} {
+		if _, ok := req.Agent.EnvVars[key]; ok {
+			t.Fatalf("provider-owned key %s must be stripped from lower tiers", key)
+		}
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("current launch should validate: %v", err)
+	}
+}
+
+func TestParseDeployRequest_CurrentLaunchRequiresCommand(t *testing.T) {
+	body := `{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","agent_command":"buzz-agent","launch":{"env":{"A":"b"}}}}`
+	if _, err := ParseDeployRequest([]byte(body)); err == nil || !strings.Contains(err.Error(), "agent.launch.command") {
+		t.Fatalf("expected launch command error, got %v", err)
+	}
+}
+
 func TestParseDeployRequest_MalformedJSON(t *testing.T) {
 	cases := []string{
 		``,
@@ -340,5 +395,16 @@ func TestProviderConfig_McpDirectCommand(t *testing.T) {
 				t.Errorf("McpDirectCommand() = %q, want %q (for %d entries)", got, tc.want, len(tc.servers))
 			}
 		})
+	}
+}
+
+func TestParseDeployRequest_CurrentLaunchAbsentValuesDoNotFallBackToLegacy(t *testing.T) {
+	body := `{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","agent_command":"stale","system_prompt":"stale","model":"stale","provider":"stale","parallelism":99,"idle_timeout_seconds":88,"max_turn_duration_seconds":77,"env_vars":{"STALE":"yes"},"launch":{"command":"buzz-agent","args":[],"env":{},"policy_env":{}}}}`
+	req, err := ParseDeployRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Agent.SystemPrompt != "" || req.Agent.Model != nil || req.Agent.Provider != nil || req.Agent.Parallelism != 1 || req.Agent.IdleTimeoutSeconds != 0 || req.Agent.MaxTurnDurationSecs != 0 || len(req.Agent.EnvVars) != 0 {
+		t.Fatalf("launch absence resurrected legacy fields: %#v", req.Agent)
 	}
 }

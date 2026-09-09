@@ -184,6 +184,9 @@ Match on the code, not the prose.
 | `install.script` | pass a known `provider_config.buzz_version` (the error lists the pinned versions this build ships sha256s for) |
 | `install.write` | check sandbox SSH reachability with `databricks sandbox ssh <id> -- true` |
 | `install.exec` | read the install output above: a sha256 mismatch means the pinned release changed; a fetch failure means the sandbox lost egress to GitHub |
+| `install.buzz_skill` | check sandbox SSH reachability and that `$HOME/.buzz` is writable; the embedded Buzz CLI skill could not be refreshed |
+| `install.skills_config` | fix `provider_config.skills_config`; only the versioned `buzz-skills` schema and safe skill names are accepted |
+| `install.skills_exec` | check `databricks aitools` availability and output; remove unmanaged name collisions or choose `replace-managed` only for provider-marked skills |
 | `install.adapter_script` | pass a known `provider_config.claude_adapter_version` (the error lists the adapter versions this build ships a pinned package-lock.json for) |
 | `install.adapter_write` | check sandbox SSH reachability with `databricks sandbox ssh <id> -- true` |
 | `install.adapter_exec` | read the npm output above: an integrity mismatch means the registry served different bytes than the pinned lockfile — do NOT retry, report it; anything else is usually lost sandbox egress to registry.npmjs.org, which is safe to retry |

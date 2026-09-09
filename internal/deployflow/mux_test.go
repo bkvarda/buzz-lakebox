@@ -1,10 +1,14 @@
 package deployflow
 
 import (
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/IceRhymers/buzz-lakebox/internal/install"
+	"github.com/IceRhymers/buzz-lakebox/internal/mcpconfig"
+	"github.com/IceRhymers/buzz-lakebox/internal/muxcfg"
 	"github.com/IceRhymers/buzz-lakebox/internal/nest"
 	"github.com/IceRhymers/buzz-lakebox/internal/payload"
 )
@@ -295,5 +299,62 @@ func TestDeploy_McpMux_VerifyFailure(t *testing.T) {
 	}
 	if got := CodeOf(err); got != CodeMcpVerify {
 		t.Fatalf("code = %q, want %q (error: %v)", got, CodeMcpVerify, err)
+	}
+}
+
+func TestDeploy_ManagedMCPWritesTypedBridgeAndLeastPrivilegeConfig(t *testing.T) {
+	h := newHarness(t)
+	setHappyPathEnv(t)
+	t.Setenv("FAKE_LIST_JSON", "[]")
+	req := buildReq(reqOpts{envVars: map[string]string{
+		"DATABRICKS_HOST":  "https://workspace.example",
+		"DATABRICKS_TOKEN": "dapi-own",
+	}})
+	req.ProviderConfig.MCP = mcpconfig.Config{
+		Schema: mcpconfig.CurrentSchema, Version: mcpconfig.CurrentVersion,
+		Servers: []mcpconfig.Server{
+			{Name: "warehouse", Kind: mcpconfig.KindSQL, Auth: mcpconfig.AuthEnv},
+			{Name: "tools", Kind: mcpconfig.KindMCPService, Resource: []string{"system", "ai", "tools"}, Auth: mcpconfig.AuthEnv},
+		},
+	}
+	if _, err := h.dep.Deploy(req); err != nil {
+		t.Fatal(err)
+	}
+
+	var bridgeWritten, configChecked bool
+	for _, e := range h.events() {
+		if e.kind != "SSH" {
+			continue
+		}
+		switch e.sshTag {
+		case "http-mcp-bin-write":
+			bridgeWritten = len(e.stdin(t)) > 4 && strings.HasPrefix(e.stdin(t), "\x7fELF")
+		case "mux-cfg-write":
+			var cfg muxcfg.Config
+			if err := json.Unmarshal([]byte(e.stdin(t)), &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if len(cfg.Servers) != 2 {
+				t.Fatalf("managed mux servers=%d", len(cfg.Servers))
+			}
+			for _, srv := range cfg.Servers {
+				if srv.Command != "bzhttpmcp" {
+					t.Fatalf("managed command=%q", srv.Command)
+				}
+				if !reflect.DeepEqual(srv.Env.Inherit, []string{"DATABRICKS_HOST", "DATABRICKS_TOKEN"}) {
+					t.Fatalf("managed inherit=%v", srv.Env.Inherit)
+				}
+				if len(srv.Env.Set) != 0 {
+					t.Fatalf("managed server serialized literal env: %v", srv.Env.Set)
+				}
+			}
+			if got := strings.Join(cfg.Servers[1].Args, " "); got != "--kind mcp-service --resource system --resource ai --resource tools" {
+				t.Fatalf("typed args=%q", got)
+			}
+			configChecked = true
+		}
+	}
+	if !bridgeWritten || !configChecked {
+		t.Fatalf("bridgeWritten=%v configChecked=%v", bridgeWritten, configChecked)
 	}
 }

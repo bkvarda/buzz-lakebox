@@ -69,6 +69,16 @@ func TestInfo_FrozenShape(t *testing.T) {
 					"title":       "Idle timeout",
 					"description": "Duration like 30m or 2h; empty = no autostop (default).",
 				},
+				"mcp_config": map[string]any{
+					"type":        "string",
+					"title":       "Managed MCP configuration",
+					"description": "Optional compact versioned JSON. Server hosts are derived from the selected workspace; credentials and profile names must not appear in this value.",
+				},
+				"skills_config": map[string]any{
+					"type":        "string",
+					"title":       "Databricks skills configuration",
+					"description": "Optional compact buzz-skills v1 JSON for a noninteractive databricks aitools --skills-only sync. Existing unmanaged skills are never overwritten.",
+				},
 			},
 			"required": []string{},
 		},

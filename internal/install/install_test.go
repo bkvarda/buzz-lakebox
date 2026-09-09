@@ -16,6 +16,19 @@ func TestBuildInstallScript_DefaultVersion(t *testing.T) {
 	if !strings.Contains(script, pinnedSHA256[DefaultVersion]) {
 		t.Fatal("script should embed the pinned sha256")
 	}
+	if !strings.Contains(script, "releases/download/desktop-v0.5.23/Buzz_0.5.23_amd64.deb") {
+		t.Fatal("script should map the semantic version to the desktop-prefixed release tag")
+	}
+}
+
+func TestBuildInstallScript_AcceptsDesktopTagAlias(t *testing.T) {
+	script, err := BuildInstallScript("desktop-v0.5.23")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(script, "releases/download/desktop-v0.5.23/Buzz_0.5.23_amd64.deb") {
+		t.Fatal("desktop tag alias should resolve to the pinned asset")
+	}
 }
 
 func TestBuildInstallScript_UnknownVersionFailsLoud(t *testing.T) {

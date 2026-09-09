@@ -25,6 +25,10 @@ const MuxBinPath = MuxBinDir + "/bzmux"
 // env_clear the agent runtime applies.
 const MuxConfigPath = MuxBinDir + "/mcp-mux.json"
 
+// HTTPMCPBinPath is the embedded stdio-to-Streamable-HTTP bridge used by
+// typed Databricks managed MCP entries.
+const HTTPMCPBinPath = MuxBinDir + "/bzhttpmcp"
+
 // MuxInstall is the install-local twin of any payload-level MCP-mux
 // description. It carries everything internal/install needs to render the
 // config JSON and chmod script without importing internal/payload — the same

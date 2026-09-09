@@ -9,7 +9,11 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/IceRhymers/buzz-lakebox/internal/mcpconfig"
+	"github.com/IceRhymers/buzz-lakebox/internal/skillconfig"
 )
 
 // envVarKeyPattern is a valid POSIX shell/environment variable name. Keys
@@ -30,9 +34,22 @@ type DeployRequest struct {
 	ProviderConfig ProviderConfig `json:"provider_config"`
 }
 
+// Launch is the current Buzz desktop's resolved launch contract. PolicyEnv
+// contains overridable defaults (tier 1); Env is the fully resolved user and
+// harness environment (tier 2). Provider-owned identity and relay values are
+// applied later by the sandbox provider (tier 3). A nil Launch means the
+// request came from a legacy desktop and the top-level fields remain the source
+// of truth.
+type Launch struct {
+	Command     string            `json:"command"`
+	Args        []string          `json:"args"`
+	Env         map[string]string `json:"env"`
+	PolicyEnv   map[string]string `json:"policy_env"`
+	OwnerPubkey string            `json:"owner_pubkey"`
+}
+
 // Agent is the exhaustive agent payload (docs/CONTRACT.md §3, "agent
-// fields"). Field set and names are frozen against buzz's
-// deploy_payload_json(); do not add/rename without re-verifying upstream.
+// fields"). Unknown fields remain tolerated for forward compatibility.
 type Agent struct {
 	Name                string            `json:"name"`
 	RelayURL            string            `json:"relay_url"`
@@ -50,6 +67,8 @@ type Agent struct {
 	RespondTo           string            `json:"respond_to"`
 	RespondToAllowlist  []string          `json:"respond_to_allowlist"`
 	EnvVars             map[string]string `json:"env_vars"`
+	Launch              *Launch           `json:"launch"`
+	OwnerPubkey         string            `json:"-"`
 }
 
 // ProviderConfig is the provider_config object (docs/CONTRACT.md §3). All
@@ -103,8 +122,12 @@ type ProviderConfig struct {
 	// package defines only their VALIDATION (issue #18); the install/wire
 	// behavior is issues #15/#16, and a payload that sets these keys must
 	// validate/refuse correctly but otherwise does nothing here.
-	ExtraBinaries []ExtraBinary `json:"extra_binaries"`
-	McpServers    []string      `json:"mcp_servers"`
+	ExtraBinaries []ExtraBinary      `json:"extra_binaries"`
+	McpServers    []string           `json:"mcp_servers"`
+	MCP           mcpconfig.Config   `json:"mcp"`
+	MCPConfig     string             `json:"mcp_config"`
+	SkillsConfig  string             `json:"skills_config"`
+	Skills        skillconfig.Config `json:"-"`
 }
 
 // SandboxInferenceAuth reports whether provider_config opts the deploy into
@@ -171,7 +194,13 @@ const (
 
 // McpMode returns the mode implied by the number of mcp_servers entries.
 func (c ProviderConfig) McpMode() McpMode {
-	switch len(c.McpServers) {
+	if len(c.MCP.Servers) > 0 {
+		// Managed servers need typed bridge arguments, so even one server uses
+		// bzmux rather than the legacy bare-command direct slot.
+		return McpMux
+	}
+	count := len(c.McpServers)
+	switch count {
 	case 0:
 		return McpNone
 	case 1:
@@ -185,10 +214,41 @@ func (c ProviderConfig) McpMode() McpMode {
 // McpDirect, and "" otherwise. In McpDirect mode this is the value the
 // resolved BUZZ_ACP_MCP_COMMAND takes.
 func (c ProviderConfig) McpDirectCommand() string {
-	if c.McpMode() == McpDirect {
+	if c.McpMode() == McpDirect && len(c.MCP.Servers) == 0 {
 		return c.McpServers[0]
 	}
 	return ""
+}
+
+func (c ProviderConfig) HasManagedMCP() bool { return len(c.MCP.Servers) > 0 }
+
+func (c *ProviderConfig) parseSkillsConfig() error {
+	if c.SkillsConfig == "" {
+		return nil
+	}
+	cfg, err := skillconfig.Parse([]byte(c.SkillsConfig))
+	if err != nil {
+		return fmt.Errorf("provider_config.skills_config: %w", err)
+	}
+	c.Skills = cfg
+	return nil
+}
+
+func (c ProviderConfig) HasSkills() bool { return c.Skills.AITools != nil }
+
+func (c *ProviderConfig) parseMCPConfig() error {
+	if c.MCPConfig == "" {
+		return nil
+	}
+	if len(c.MCP.Servers) > 0 {
+		return fmt.Errorf("provider_config.mcp and provider_config.mcp_config are mutually exclusive")
+	}
+	cfg, err := mcpconfig.Parse([]byte(c.MCPConfig))
+	if err != nil {
+		return fmt.Errorf("provider_config.mcp_config: %w", err)
+	}
+	c.MCP = cfg
+	return nil
 }
 
 // ParseDeployRequest unmarshals a raw deploy request body (the "agent" and
@@ -201,7 +261,111 @@ func ParseDeployRequest(data []byte) (*DeployRequest, error) {
 	if err := json.Unmarshal(data, &req); err != nil {
 		return nil, fmt.Errorf("parse deploy request: %w", err)
 	}
+	if err := req.ProviderConfig.parseMCPConfig(); err != nil {
+		return nil, fmt.Errorf("parse deploy request: %w", err)
+	}
+	if err := req.ProviderConfig.parseSkillsConfig(); err != nil {
+		return nil, fmt.Errorf("parse deploy request: %w", err)
+	}
+	if err := req.ApplyLaunch(); err != nil {
+		return nil, fmt.Errorf("parse deploy request: %w", err)
+	}
 	return &req, nil
+}
+
+func stringPtr(value string) *string { return &value }
+
+func providerOwnedEnvKey(key string) bool {
+	switch strings.ToUpper(key) {
+	case "BUZZ_RELAY_URL", "BUZZ_PRIVATE_KEY", "NOSTR_PRIVATE_KEY", "BUZZ_AUTH_TAG",
+		"BUZZ_ACP_AGENT_OWNER", "BUZZ_ACP_AGENT_COMMAND", "BUZZ_ACP_AGENT_ARGS",
+		"BUZZ_ACP_RESPOND_TO", "BUZZ_ACP_RESPOND_TO_ALLOWLIST", "BUZZ_ACP_MCP_COMMAND",
+		"BUZZ_ACP_RELAY_OBSERVER", "MCP_HOOK_SERVERS":
+		return true
+	default:
+		return false
+	}
+}
+
+// ApplyLaunch projects a current Buzz launch block onto the legacy fields the
+// rest of this provider already consumes. This is intentionally a replacement,
+// not a merge with agent.env_vars: the desktop already resolved all user
+// layers into launch.env, and re-applying the legacy map would resurrect stale
+// or reserved values. Tier 2 wins over tier 1; provider-owned identity fields
+// continue to be emitted authoritatively by nest.RenderEnv.
+func (r *DeployRequest) ApplyLaunch() error {
+	launch := r.Agent.Launch
+	if launch == nil {
+		return nil
+	}
+
+	command := strings.TrimSpace(launch.Command)
+	if command == "" {
+		return fmt.Errorf("agent.launch.command must not be empty when agent.launch is present")
+	}
+
+	env := make(map[string]string, len(launch.PolicyEnv)+len(launch.Env))
+	for key, value := range launch.PolicyEnv {
+		if providerOwnedEnvKey(key) {
+			continue
+		}
+		env[key] = value
+	}
+	for key, value := range launch.Env {
+		if providerOwnedEnvKey(key) {
+			continue
+		}
+		env[key] = value
+	}
+
+	// A present launch block replaces every launch-controlled legacy field.
+	// Missing values mean absent/default, never "fall back to the stale legacy
+	// projection".
+	r.Agent.AgentCommand = command
+	r.Agent.AgentArgs = append([]string(nil), launch.Args...)
+	r.Agent.EnvVars = env
+	r.Agent.OwnerPubkey = strings.TrimSpace(launch.OwnerPubkey)
+	r.Agent.SystemPrompt = ""
+	r.Agent.Model = nil
+	r.Agent.Provider = nil
+	r.Agent.Parallelism = 1
+	r.Agent.IdleTimeoutSeconds = 0
+	r.Agent.MaxTurnDurationSecs = 0
+	if value, ok := env["BUZZ_ACP_SYSTEM_PROMPT"]; ok {
+		r.Agent.SystemPrompt = value
+	}
+	if value, ok := env["BUZZ_ACP_MODEL"]; ok {
+		r.Agent.Model = stringPtr(value)
+	} else if value, ok := env["ANTHROPIC_MODEL"]; ok {
+		r.Agent.Model = stringPtr(value)
+	}
+	if value, ok := env["BUZZ_AGENT_PROVIDER"]; ok {
+		r.Agent.Provider = stringPtr(value)
+	} else if value, ok := env["GOOSE_PROVIDER"]; ok {
+		r.Agent.Provider = stringPtr(value)
+	}
+	if value, ok := env["BUZZ_ACP_AGENTS"]; ok {
+		parallelism, err := strconv.Atoi(value)
+		if err != nil || parallelism < 1 {
+			return fmt.Errorf("agent.launch environment BUZZ_ACP_AGENTS must be a positive integer")
+		}
+		r.Agent.Parallelism = parallelism
+	}
+	if value, ok := env["BUZZ_ACP_IDLE_TIMEOUT"]; ok {
+		seconds, err := strconv.Atoi(value)
+		if err != nil || seconds < 0 {
+			return fmt.Errorf("agent.launch environment BUZZ_ACP_IDLE_TIMEOUT must be a non-negative integer")
+		}
+		r.Agent.IdleTimeoutSeconds = seconds
+	}
+	if value, ok := env["BUZZ_ACP_MAX_TURN_DURATION"]; ok {
+		seconds, err := strconv.Atoi(value)
+		if err != nil || seconds < 0 {
+			return fmt.Errorf("agent.launch environment BUZZ_ACP_MAX_TURN_DURATION must be a non-negative integer")
+		}
+		r.Agent.MaxTurnDurationSecs = seconds
+	}
+	return nil
 }
 
 // Validate checks the fields deploy provisioning depends on. It never
@@ -302,6 +466,22 @@ func (r DeployRequest) Validate() error {
 	}
 	if err := r.validateMcpServers(); err != nil {
 		return err
+	}
+	if r.ProviderConfig.HasManagedMCP() {
+		if len(r.ProviderConfig.McpServers) > 0 {
+			return fmt.Errorf("provider_config.mcp and provider_config.mcp_servers are mutually exclusive")
+		}
+		if err := r.ProviderConfig.MCP.Validate(); err != nil {
+			return fmt.Errorf("provider_config.mcp: %w", err)
+		}
+	}
+	if r.ProviderConfig.HasSkills() {
+		if r.ProviderConfig.OwnerPATInSandbox() {
+			return fmt.Errorf("provider_config.skills_config must not be set when the sandbox holds a workspace-owner credential; use inference_auth=\"env\" with a least-privilege credential")
+		}
+		if err := r.ProviderConfig.Skills.Validate(); err != nil {
+			return fmt.Errorf("provider_config.skills_config: %w", err)
+		}
 	}
 	if err := r.validateClaudeInferenceSource(); err != nil {
 		return err

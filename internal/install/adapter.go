@@ -18,11 +18,11 @@ const (
 	adapterPackageJSON = `{"name":"%s","private":true,"version":"0.0.0","dependencies":{%s:%s}}`
 )
 
-//go:embed lockfiles/claude-agent-acp-0.63.0.package-lock.json
-var adapterLockfileClaude0_63_0 []byte
+//go:embed lockfiles/claude-agent-acp-0.73.0.package-lock.json
+var adapterLockfileClaude0_73_0 []byte
 
-//go:embed lockfiles/codex-acp-1.1.7.package-lock.json
-var adapterLockfileCodex1_1_7 []byte
+//go:embed lockfiles/codex-acp-1.8.0.package-lock.json
+var adapterLockfileCodex1_8_0 []byte
 
 // AdapterSpec is everything that differs between one ACP adapter and
 // another. It exists so that adding a runtime is a table row rather than an
@@ -88,7 +88,7 @@ var adapterSpecs = map[string]AdapterSpec{
 		BinName:         "claude-agent-acp",
 		Dir:             "$HOME/.buzz-backend/npm-claude",
 		PackageJSONName: "buzz-claude-adapter",
-		DefaultVersion:  "0.63.0",
+		DefaultVersion:  "0.73.0",
 
 		// Answers and exits 0 on stdin EOF in ~355ms (probe P5), so the
 		// handshake closes stdin immediately as it always has.
@@ -98,7 +98,7 @@ var adapterSpecs = map[string]AdapterSpec{
 		// @anthropic-ai/claude-agent-sdk-<os>-<arch> optional dependencies
 		// with integrity hashes and selects the matching one at install
 		// time, so no --os/--cpu generation flags are needed.
-		Lockfiles: map[string][]byte{"0.63.0": adapterLockfileClaude0_63_0},
+		Lockfiles: map[string][]byte{"0.73.0": adapterLockfileClaude0_73_0},
 	},
 
 	"codex-acp": {
@@ -107,7 +107,7 @@ var adapterSpecs = map[string]AdapterSpec{
 		BinName:         "codex-acp",
 		Dir:             "$HOME/.buzz-backend/npm-codex",
 		PackageJSONName: "buzz-codex-adapter",
-		DefaultVersion:  "1.1.7",
+		DefaultVersion:  "1.8.0",
 
 		// MUST be non-zero. `printf FRAME | codex-acp` exits 0 having
 		// written nothing at all; the same frame with stdin held open for
@@ -123,7 +123,7 @@ var adapterSpecs = map[string]AdapterSpec{
 		// darwin/linux/win32 x arm64/x64 only. The Lakebox sandbox image
 		// is glibc so this is fine today, but a musl base image would
 		// break `npm ci` here rather than degrade.
-		Lockfiles: map[string][]byte{"1.1.7": adapterLockfileCodex1_1_7},
+		Lockfiles: map[string][]byte{"1.8.0": adapterLockfileCodex1_8_0},
 	},
 }
 

@@ -11,7 +11,9 @@ import (
 
 	"github.com/IceRhymers/buzz-lakebox/internal/identity"
 	"github.com/IceRhymers/buzz-lakebox/internal/lakebox"
+	"github.com/IceRhymers/buzz-lakebox/internal/nest"
 	"github.com/IceRhymers/buzz-lakebox/internal/payload"
+	"github.com/IceRhymers/buzz-lakebox/internal/skillconfig"
 	"github.com/IceRhymers/buzz-lakebox/internal/sshx"
 	"github.com/IceRhymers/buzz-lakebox/internal/state"
 )
@@ -466,7 +468,7 @@ func TestDeploy_HappyPath_FreshCreate(t *testing.T) {
 	assertOrder(t, seq, []string{
 		"CLI:version", "CLI:current-user", "CLI:register", "CLI:list", "CLI:create",
 		"SSH:pat-reset", "SSH:install-write", "SSH:install-exec",
-		"SSH:verify-exec",
+		"SSH:buzz-skill-write", "SSH:verify-exec",
 		"SSH:env-write", "SSH:prelaunch-kill",
 		"SSH:launch-write", "SSH:launch-exec",
 		"SSH:verify-check",
@@ -547,7 +549,7 @@ func TestDeploy_IdempotentRedeploy_ReuseStopped(t *testing.T) {
 		"CLI:version", "CLI:current-user", "CLI:register", "CLI:list",
 		"CLI:start", "CLI:status",
 		"SSH:pat-reset", "SSH:install-write", "SSH:install-exec",
-		"SSH:verify-exec",
+		"SSH:buzz-skill-write", "SSH:verify-exec",
 		"SSH:env-write", "SSH:prelaunch-kill",
 		"SSH:launch-write", "SSH:launch-exec",
 		"SSH:verify-check",
@@ -926,4 +928,53 @@ func TestResolveMcpCommand(t *testing.T) {
 			t.Fatalf("McpMux must resolve to %q, got %q", payload.MuxBinaryName, got)
 		}
 	})
+}
+
+func TestDeploy_BuzzSkillWrittenFromEmbeddedBytes(t *testing.T) {
+	h := newHarness(t)
+	setHappyPathEnv(t)
+	t.Setenv("FAKE_LIST_JSON", "[]")
+	if _, err := h.dep.Deploy(buildReq(reqOpts{})); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range h.events() {
+		if e.kind != "SSH" || e.sshTag != "buzz-skill-write" {
+			continue
+		}
+		if got := e.stdin(t); got != strings.TrimSuffix(string(nest.BuzzSkillMD), "\n") {
+			t.Fatalf("skill stdin differed from embedded bytes after the shell shim's trailing-newline trim: got %d bytes, want %d", len(got), len(nest.BuzzSkillMD))
+		}
+		args := e.args(t)
+		for _, want := range []string{nest.BuzzSkillPath, nest.BuzzSkillVersionPath, "mv -f", nest.BuzzSkillLinkScript} {
+			if !strings.Contains(args, want) {
+				t.Fatalf("skill install command missing %q", want)
+			}
+		}
+		return
+	}
+	t.Fatal("deploy did not write the Buzz CLI skill")
+}
+
+func TestDeploy_DatabricksSkillsRunAfterBuzzSkill(t *testing.T) {
+	h := newHarness(t)
+	setHappyPathEnv(t)
+	t.Setenv("FAKE_LIST_JSON", "[]")
+	req := buildReq(reqOpts{})
+	req.ProviderConfig.Skills = skillconfig.Config{Schema: skillconfig.CurrentSchema, Version: 1, AITools: &skillconfig.AITools{Skills: []string{"sql"}}}
+	if _, err := h.dep.Deploy(req); err != nil {
+		t.Fatal(err)
+	}
+	assertOrder(t, callSequence(h.events()), []string{"SSH:install-exec", "SSH:buzz-skill-write", "SSH:skills-write", "SSH:skills-exec", "SSH:verify-exec"})
+	for _, e := range h.events() {
+		if e.kind == "SSH" && e.sshTag == "skills-write" {
+			script := e.stdin(t)
+			for _, want := range []string{"databricks aitools install --skills-only", "--skills 'sql'", "buzz-cli", "replace-managed"} {
+				if !strings.Contains(script, want) {
+					t.Fatalf("skills script missing %q", want)
+				}
+			}
+			return
+		}
+	}
+	t.Fatal("skills installer was not written")
 }

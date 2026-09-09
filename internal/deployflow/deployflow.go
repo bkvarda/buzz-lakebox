@@ -15,9 +15,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/IceRhymers/buzz-lakebox/internal/httpmcpbin"
 	"github.com/IceRhymers/buzz-lakebox/internal/identity"
 	"github.com/IceRhymers/buzz-lakebox/internal/install"
 	"github.com/IceRhymers/buzz-lakebox/internal/lakebox"
+	"github.com/IceRhymers/buzz-lakebox/internal/mcpconfig"
 	"github.com/IceRhymers/buzz-lakebox/internal/muxbin"
 	"github.com/IceRhymers/buzz-lakebox/internal/muxcfg"
 	"github.com/IceRhymers/buzz-lakebox/internal/nest"
@@ -801,6 +803,15 @@ func (d *Deployer) installAndVerify(ctx context.Context, profile, sandboxID stri
 		return failf(CodeInstallExec, "install: %w", err)
 	}
 
+	if err := d.installBuzzSkill(ctx, profile, sandboxID); err != nil {
+		return err
+	}
+	if cfg.HasSkills() {
+		if err := d.installDatabricksSkills(ctx, profile, sandboxID, cfg); err != nil {
+			return err
+		}
+	}
+
 	if spec, ok := install.AdapterSpecFor(rt.SpawnCommand()); ok {
 		if err := d.installACPAdapter(ctx, profile, sandboxID, spec, adapterVersionFor(rt, cfg)); err != nil {
 			return err
@@ -867,6 +878,48 @@ func (d *Deployer) installAndVerify(ctx context.Context, profile, sandboxID stri
 		if err := d.codexInferenceProbe(ctx, profile, sandboxID, envContent); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (d *Deployer) installBuzzSkill(ctx context.Context, profile, sandboxID string) error {
+	write := fmt.Sprintf(`set -eu
+umask 077
+skill=%s
+version=%s
+mkdir -p "$(dirname "$skill")"
+tmp="${skill}.tmp.$$"
+trap 'rm -f "$tmp"' EXIT
+cat > "$tmp"
+chmod 600 "$tmp"
+mv -f "$tmp" "$skill"
+printf '%%s' %s > "$version"
+chmod 600 "$version"
+trap - EXIT
+%s`, dquote(nest.BuzzSkillPath), dquote(nest.BuzzSkillVersionPath), shellquote.Single(nest.BuzzSkillVersion), nest.BuzzSkillLinkScript)
+	if _, err := d.SSH.RunWithStdin(ctx, profile, sandboxID,
+		step("buzz-skill-write", write),
+		bytes.NewReader(nest.BuzzSkillMD),
+	); err != nil {
+		return failf(CodeBuzzSkill, "Buzz CLI skill install: %w", err)
+	}
+	return nil
+}
+
+func (d *Deployer) installDatabricksSkills(ctx context.Context, profile, sandboxID string, cfg payload.ProviderConfig) error {
+	script, err := install.BuildSkillsInstallScript(cfg.Skills)
+	if err != nil {
+		return failf(CodeSkillsConfig, "Databricks skills: %w", err)
+	}
+	const scriptPath = "$HOME/.buzz-backend/install-skills.sh"
+	if _, err := d.SSH.RunWithStdin(ctx, profile, sandboxID,
+		step("skills-write", fmt.Sprintf(`set -eu; umask 077; cat > %s && chmod 700 %s`, dquote(scriptPath), dquote(scriptPath))),
+		strings.NewReader(script),
+	); err != nil {
+		return failf(CodeSkillsExec, "Databricks skills: write installer: %w", err)
+	}
+	if _, err := d.SSH.Run(ctx, profile, sandboxID, step("skills-exec", dquote(scriptPath))); err != nil {
+		return failf(CodeSkillsExec, "Databricks skills: %w", err)
 	}
 	return nil
 }
@@ -950,34 +1003,51 @@ func (d *Deployer) installExtraBinaries(ctx context.Context, profile, sandboxID 
 //     export the same PATH launch.sh uses, and run the ABSOLUTE install.MuxBinPath
 //     with --selftest — prevents shipping a live-bitten agent (Critic #8).
 //
-// Per-server env allowlist (plan §5C, Critic #7 — least-privilege):
-// buzz-dev-mcp receives the Buzz relay secrets via Env.Inherit; all other
-// servers get an empty allowlist. Per-server env declaration for arbitrary
-// servers requires a schema change beyond the frozen contract and is a future
-// extension; today only the known buzz-dev-mcp consumer receives secrets.
+// Per-server env is least-privilege: legacy buzz-dev-mcp receives only its
+// Buzz relay identity variables; typed remote bridge children receive only
+// DATABRICKS_HOST/DATABRICKS_TOKEN; other local children receive only their
+// validated explicit inherit list.
 func (d *Deployer) installMux(ctx context.Context, profile, sandboxID string, cfg payload.ProviderConfig, envContent string) error {
-	// Map mcp_servers entries to muxcfg.Config servers with the per-server
-	// env allowlist. Only buzz-dev-mcp receives Buzz relay credentials by
-	// inheritance; every other server gets an empty Env (no secret forwarding
-	// this increment — per-server env declaration for arbitrary servers is a
-	// future extension requiring a schema change beyond the frozen contract).
-	servers := make([]muxcfg.Server, len(cfg.McpServers))
-	for i, name := range cfg.McpServers {
-		srv := muxcfg.Server{Name: name, Command: name}
-		if name == "buzz-dev-mcp" {
-			// buzz-dev-mcp reads these relay credentials from its environment
-			// and scrubs them on startup. Forward them via the allowlist so
-			// this server can authenticate to the relay.
-			srv.Env.Inherit = []string{
-				"BUZZ_PRIVATE_KEY",
-				"BUZZ_AUTH_TAG",
-				"BUZZ_RELAY_URL",
-				"NOSTR_PRIVATE_KEY",
+	var muxCfg muxcfg.Config
+	if cfg.HasManagedMCP() {
+		var err error
+		muxCfg, err = mcpconfig.ToMuxConfig(cfg.MCP, mcpconfig.Options{
+			RemoteCommand: "bzhttpmcp",
+			RemoteArgs: func(remote mcpconfig.Remote) ([]string, error) {
+				args := []string{"--kind", string(remote.Kind)}
+				if remote.Kind == mcpconfig.KindSkills {
+					for i := 0; i < len(remote.Components); i += 2 {
+						args = append(args, "--schema", remote.Components[i]+"."+remote.Components[i+1])
+					}
+				} else {
+					for _, component := range remote.Components {
+						args = append(args, "--resource", component)
+					}
+				}
+				return args, nil
+			},
+		})
+		if err != nil {
+			return failf(CodeMuxWrite, "managed MCP: build mux config: %w", err)
+		}
+		// The bridge deliberately supports env auth only in this release. It
+		// receives exactly the host/token pair and no Buzz identity secrets.
+		for i := range muxCfg.Servers {
+			if cfg.MCP.Servers[i].Kind != mcpconfig.KindLocal {
+				muxCfg.Servers[i].Env.Inherit = []string{"DATABRICKS_HOST", "DATABRICKS_TOKEN"}
 			}
 		}
-		servers[i] = srv
+	} else {
+		servers := make([]muxcfg.Server, len(cfg.McpServers))
+		for i, name := range cfg.McpServers {
+			srv := muxcfg.Server{Name: name, Command: name}
+			if name == "buzz-dev-mcp" {
+				srv.Env.Inherit = []string{"BUZZ_PRIVATE_KEY", "BUZZ_AUTH_TAG", "BUZZ_RELAY_URL", "NOSTR_PRIVATE_KEY"}
+			}
+			servers[i] = srv
+		}
+		muxCfg = muxcfg.Config{Servers: servers}
 	}
-	muxCfg := muxcfg.Config{Servers: servers}
 
 	cfgBytes, err := install.BuildMuxConfigJSON(muxCfg)
 	if err != nil {
@@ -994,6 +1064,18 @@ func (d *Deployer) installMux(ctx context.Context, profile, sandboxID string, cf
 		bytes.NewReader(muxbin.Binary),
 	); err != nil {
 		return failf(CodeMuxWrite, "mcp multiplexer: write binary: %w", err)
+	}
+
+	if cfg.HasManagedMCP() {
+		if _, err := d.SSH.RunWithStdin(ctx, profile, sandboxID,
+			step("http-mcp-bin-write", fmt.Sprintf(
+				`set -eu; umask 077; mkdir -p %s; cat > %s && chmod 755 %s`,
+				dquote(install.MuxBinDir), dquote(install.HTTPMCPBinPath), dquote(install.HTTPMCPBinPath),
+			)),
+			bytes.NewReader(httpmcpbin.Binary),
+		); err != nil {
+			return failf(CodeMuxWrite, "managed MCP: write Streamable HTTP bridge: %w", err)
+		}
 	}
 
 	// Step mux-cfg-write: write the JSON config over stdin and chmod 600
