@@ -2,19 +2,19 @@ version: 2
 
 project_name: buzz-backend-databricks-lakebox
 
-before:
-  hooks:
-    - go mod tidy
-    # Regenerate the committed bzmux artifact before a release so the
-    # embedded binary is always freshly cross-compiled at release time.
-    - make bzmux
-
+# Tagged source is immutable. Generation, tidy, and other mutating hooks are
+# intentionally absent; the release workflow verifies committed helper bytes
+# before invoking GoReleaser.
 builds:
   - id: buzz-backend-databricks-lakebox
     main: ./cmd/buzz-backend-databricks-lakebox
     binary: buzz-backend-databricks-lakebox
     env:
       - CGO_ENABLED=0
+    flags:
+      - -mod=readonly
+      - -trimpath
+      - -buildvcs=false
     goos:
       - darwin
       - linux
@@ -22,7 +22,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/IceRhymers/buzz-lakebox/internal/version.Version={{ .Version }}
+      - -s -w -buildid= -X github.com/IceRhymers/buzz-lakebox/internal/version.Version={{ .Version }}
 
 archives:
   - id: default
