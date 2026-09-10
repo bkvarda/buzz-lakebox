@@ -82,7 +82,6 @@ type session struct {
 	proc            childProcess
 	stdin           io.WriteCloser
 	cleanup         func()
-	stderr          *limitedBuffer
 	token           string
 	host            string
 	closeTimeout    time.Duration
@@ -101,12 +100,11 @@ type session struct {
 
 var _ mcpops.InitializedServer = (*session)(nil)
 
-func newSession(proc childProcess, cleanup func(), stderr *limitedBuffer, token, host string, closeTimeout time.Duration) *session {
+func newSession(proc childProcess, cleanup func(), token, host string, closeTimeout time.Duration) *session {
 	s := &session{
 		proc:         proc,
 		stdin:        proc.Stdin(),
 		cleanup:      cleanup,
-		stderr:       stderr,
 		token:        token,
 		host:         host,
 		closeTimeout: closeTimeout,
@@ -329,8 +327,8 @@ func (s *session) Close() error {
 		}
 		select {
 		case err := <-wait:
-			if err != nil {
-				s.closeErr = fmt.Errorf("MCP bridge exit: %w%s", err, s.stderr.suffix())
+			if err != nil && !errors.Is(err, context.Canceled) {
+				s.closeErr = fmt.Errorf("MCP bridge exit: %w", err)
 			}
 		case <-time.After(timeout):
 			if err := s.proc.Kill(); err != nil {
