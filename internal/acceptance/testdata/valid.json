@@ -1,0 +1,10 @@
+{
+  "schema": "buzz-internal-acceptance",
+  "version": 1,
+  "profile": "manual-test-profile",
+  "runtimes": ["buzz-agent", "claude-code", "codex-acp"],
+  "resources": {
+    "mcp_config": "{\"schema\":\"buzz-managed-mcp\",\"version\":1,\"servers\":[{\"name\":\"knowledge\",\"kind\":\"genie\",\"resource\":[\"example_space\"],\"auth\":\"env\"}]}",
+    "skills_config": "{\"schema\":\"buzz-skills\",\"version\":1,\"aitools\":{\"skills\":[\"example-skill\"],\"collision_policy\":\"fail\"}}"
+  }
+}
