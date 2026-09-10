@@ -35,7 +35,7 @@ Auth: the operator's existing `~/.databrickscfg` profile, selected via `provider
 
 ### Prerequisites
 
-- [Go](https://go.dev/dl/) 1.22 or newer
+- [Go](https://go.dev/dl/) **1.26.8** for reproducible embedded-helper generation (ordinary provider builds may use a compatible newer Go toolchain)
 - `git` and `make`
 - The [`databricks` CLI](https://docs.databricks.com/dev-tools/cli/) **1.8.0 or newer** (the version that ships the `sandbox` command group). The provider shells out to it for everything, and resolves it from `PATH` plus the usual install dirs (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/bin`) so a Dock-launched Buzz Desktop finds it too.
 - A configured `~/.databrickscfg` profile with access to the Databricks Sandbox preview (needed at runtime, not build time)
@@ -45,7 +45,7 @@ Auth: the operator's existing `~/.databrickscfg` profile, selected via `provider
 1. **Clone the repository**
 
    ```sh
-   git clone https://github.com/IceRhymers/buzz-lakebox.git
+   git clone https://github.com/bkvarda/buzz-lakebox.git
    cd buzz-lakebox
    ```
 
@@ -92,7 +92,9 @@ Auth: the operator's existing `~/.databrickscfg` profile, selected via `provider
    buzz-backend-databricks-lakebox doctor    # checks the runtime environment
    ```
 
-To build into the repo root instead of installing (e.g. for local iteration), use `make build`, and run `make check` to execute the same vet + lint + test gauntlet as CI. See `make help` for all targets.
+To build into the repo root instead of installing (e.g. for local iteration), use `make build`. `make check` runs the complete hermetic public gate: formatting, vet, lint, race tests, and deterministic offline checks for both embedded helpers. It never resolves a Databricks profile or contacts a workspace. See `make help` for all targets.
+
+Tagged releases publish checksummed archives for macOS/Linux on amd64/arm64. Release verification rebuilds both embedded Linux helpers byte-for-byte with pinned Go 1.26.8 before publishing; tagged inputs are never repaired or regenerated inside GoReleaser.
 
 ### Choosing a Databricks profile
 
@@ -184,6 +186,7 @@ Full research (buzz architecture, omnigent's Lakebox integration patterns, live 
 - [`OMNIGENT_DATABRICKS_SANDBOX_PATTERNS.md`](docs/OMNIGENT_DATABRICKS_SANDBOX_PATTERNS.md) — prior art: omnigent's lakebox launcher contract, bootstrap, auth gotchas
 - [`LAKEBOX_LIVE_PROBE_RESULTS.md`](docs/LAKEBOX_LIVE_PROBE_RESULTS.md) — live-verified API surface, lifecycle timings, egress, persistence semantics, end-to-end `buzz` CLI ↔ relay proof from inside a sandbox
 - [`UPSTREAM_BUZZ_GAPS.md`](docs/UPSTREAM_BUZZ_GAPS.md) — live-operations findings at the provider seam (misleading status, no recovery affordance, lost mentions, missing `backend_agent_id` echo, protocol v2), drafted as future block/buzz contributions
+- [`INTERNAL_ACCEPTANCE.md`](docs/INTERNAL_ACCEPTANCE.md) — the hard boundary between public hermetic CI and manual internal-workspace acceptance, including the double opt-in and sanitized evidence rules
 
 ## Key facts the design leans on (live-verified 2026-07-24)
 
@@ -246,6 +249,28 @@ schema-level `vector-search`, `functions` (schema or one function),
 `mcp-service`, `skills`, and `local`. Multiple skill scopes are represented as
 additional catalog/schema pairs in `resource`.
 
+### Guided configuration and preflight
+
+The operator CLI can validate configuration without touching a workspace, discover only resources visible to an explicit Databricks profile, and run a real `initialize` + `tools/list` probe before deployment:
+
+```sh
+# Offline and credential-free. Exactly one JSON/file flag is accepted.
+buzz-backend-databricks-lakebox config validate --mcp-file mcp.json
+buzz-backend-databricks-lakebox config validate --skills-file skills.json
+
+# Read-only discovery. Catalog-backed routes are bounded to explicit scopes.
+buzz-backend-databricks-lakebox --profile <profile> mcp discover \
+  --kind sql,genie,ai-search,functions,mcp-service,skills \
+  --scope <catalog>.<schema> --emit-config
+
+# Live read-only probe. Config is validated before auth is resolved; a short-lived
+# local U2M token is refreshed and passed only in the helper process environment.
+buzz-backend-databricks-lakebox --profile <profile> mcp probe \
+  --mcp-file mcp.json --force-refresh --timeout 30s
+```
+
+Discovery results contain portable typed identifiers—not the profile, host, or credential. Function, Skill, and MCP Service discovery never crawls all of Unity Catalog: each inspected schema must be named with `--scope`. Probe output contains only server names, kinds, deadlines, tool counts/names, and redacted errors. These live operator commands are intentionally absent from public CI.
+
 Remote entries run through the embedded, pinned `bzhttpmcp` bridge. It accepts
 only typed same-workspace endpoints, requires HTTPS, forwards JSON and SSE
 Streamable HTTP responses, tracks MCP session IDs, and reads host/token only
@@ -254,6 +279,8 @@ the 0600 launch environment after the agent runtime's MCP `env_clear`; `bzmux`
 then gives each remote child only those two variables, never the Buzz private
 key or auth tag.
 Custom URLs and literal secret/env maps are not part of schema v1.
+
+The local `mcp probe` command may refresh a short-lived token from an explicitly selected U2M CLI profile. That credential is used only by the local probe helper and is not written to config, state, argv, or output. This does **not** change deployed-agent authentication: deployed managed MCP still inherits the explicitly supplied env credential described below.
 
 Managed MCP is currently allowed only with `inference_auth: "env"` and
 `auth:"env"`. Sandbox-profile auth is reserved for a future per-request,
@@ -281,6 +308,8 @@ directory carrying the exact provenance marker written by this provider. The
 installer never overwrites `buzz-cli` or an unmanaged directory, rejects
 symlinks/special files and unsafe names, and caps output at 64 skills / 16 MiB.
 No source URL, profile, host, or credential can appear in the schema.
+
+`databricks aitools --path` is intentionally raw-skill synchronization for all runtimes. This provider does not silently install native Claude/Codex plugins or mutate an agent tool's own global plugin registry; that remains a separate explicit, reviewable lifecycle.
 
 For governed Unity Catalog Skills, configure a `kind:"skills"` entry in
 `mcp_config`. With no `resource`, it exposes only schema-less utility tools;
