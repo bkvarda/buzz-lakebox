@@ -25,8 +25,8 @@ func TestLookup_MissingFileIsNotAnError(t *testing.T) {
 
 func TestRecordAndLookup_RoundTrip(t *testing.T) {
 	s := tempStore(t)
-	key := Key("fevm-west", "npub1abc")
-	want := Entry{SandboxID: "viable-pika-4294", Profile: "fevm-west"}
+	key := Key("EXAMPLE_PROFILE", "npub1abc")
+	want := Entry{SandboxID: "sandbox-fixture-1", Profile: "EXAMPLE_PROFILE"}
 	if err := s.Record(key, want); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
@@ -96,16 +96,16 @@ func TestLookup_CorruptFileIsAnError(t *testing.T) {
 
 func TestForgetSandbox_RemovesOnlyTheMatchingEntry(t *testing.T) {
 	s := tempStore(t)
-	keep := Key("west", "npub1keep")
-	drop := Key("west", "npub1drop")
-	if err := s.Record(keep, Entry{SandboxID: "sandbox-keep", Profile: "west"}); err != nil {
+	keep := Key("EXAMPLE_PROFILE", "npub1keep")
+	drop := Key("EXAMPLE_PROFILE", "npub1drop")
+	if err := s.Record(keep, Entry{SandboxID: "sandbox-keep", Profile: "EXAMPLE_PROFILE"}); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
-	if err := s.Record(drop, Entry{SandboxID: "sandbox-drop", Profile: "west"}); err != nil {
+	if err := s.Record(drop, Entry{SandboxID: "sandbox-drop", Profile: "EXAMPLE_PROFILE"}); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 
-	removed, err := s.ForgetSandbox("west", "sandbox-drop")
+	removed, err := s.ForgetSandbox("EXAMPLE_PROFILE", "sandbox-drop")
 	if err != nil {
 		t.Fatalf("ForgetSandbox: %v", err)
 	}
@@ -124,23 +124,23 @@ func TestForgetSandbox_RemovesOnlyTheMatchingEntry(t *testing.T) {
 // one must not forget the other.
 func TestForgetSandbox_ScopedByProfile(t *testing.T) {
 	s := tempStore(t)
-	west := Key("west", "npub1same")
-	east := Key("east", "npub1same")
-	if err := s.Record(west, Entry{SandboxID: "sandbox-shared-name", Profile: "west"}); err != nil {
+	primary := Key("PRIMARY", "npub1same")
+	secondary := Key("SECONDARY", "npub1same")
+	if err := s.Record(primary, Entry{SandboxID: "sandbox-shared-name", Profile: "PRIMARY"}); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
-	if err := s.Record(east, Entry{SandboxID: "sandbox-shared-name", Profile: "east"}); err != nil {
+	if err := s.Record(secondary, Entry{SandboxID: "sandbox-shared-name", Profile: "SECONDARY"}); err != nil {
 		t.Fatalf("Record: %v", err)
 	}
 
-	removed, err := s.ForgetSandbox("west", "sandbox-shared-name")
+	removed, err := s.ForgetSandbox("PRIMARY", "sandbox-shared-name")
 	if err != nil {
 		t.Fatalf("ForgetSandbox: %v", err)
 	}
 	if removed != 1 {
 		t.Fatalf("removed = %d, want 1", removed)
 	}
-	if _, ok, _ := s.Lookup(east); !ok {
+	if _, ok, _ := s.Lookup(secondary); !ok {
 		t.Fatal("the other profile's mapping must survive")
 	}
 }
@@ -149,7 +149,7 @@ func TestForgetSandbox_ScopedByProfile(t *testing.T) {
 // deleted) must not fail — there is simply nothing to forget.
 func TestForgetSandbox_NoMatchIsNotAnError(t *testing.T) {
 	s := tempStore(t)
-	removed, err := s.ForgetSandbox("west", "sandbox-never-seen")
+	removed, err := s.ForgetSandbox("EXAMPLE_PROFILE", "sandbox-never-seen")
 	if err != nil {
 		t.Fatalf("ForgetSandbox on empty store: %v", err)
 	}

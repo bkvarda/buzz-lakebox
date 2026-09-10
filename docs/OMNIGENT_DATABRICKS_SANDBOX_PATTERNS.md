@@ -25,7 +25,7 @@ Lakebox is driven by shelling out to a **`databricks lakebox` subcommand of a sp
 | Primitive | Semantics | Lakebox specifics found in repo |
 |---|---|---|
 | `prepare()` | local preflight: install/verify provider tooling + credentials | installs the demo `databricks` CLI with `lakebox` subcommand |
-| `provision(name) -> sandbox_id` | create sandbox, return provider id (animal-word ids like `"lovable-wattlebird-1530"`) | created **in the server's workspace** (pinned via `workspace_host`); "slow provisioning" |
+| `provision(name) -> sandbox_id` | create sandbox, return provider id (animal-word ids like `"<sandbox-id>"`) | created **in the server's workspace** (pinned via `workspace_host`); "slow provisioning" |
 | `attach(sandbox_id)` | validate/refresh access to an existing sandbox | "re-ship code into a long-lived sandbox, dodging its slow provisioning + per-sandbox OAuth dance" (`--sandbox-id`) |
 | `keep_alive(sandbox_id)` | disable idle autostop / maximize lifetime; soft-fail | called on every bootstrap (`bootstrap.py::bootstrap_sandbox_host`) |
 | `run(sandbox_id, command, check=True)` | run shell command, capture `{returncode, stdout, stderr}` | over `lakebox ssh` |

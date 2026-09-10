@@ -247,7 +247,7 @@ func TestScopedRoutesNeverCrawlWithoutExplicitScopes(t *testing.T) {
 func TestScopedResultsRequireSuccessfulListPermission(t *testing.T) {
 	const profileSecret = "private-fixture-profile"
 	const tokenSecret = "placeholder-sensitive-token-value"
-	const hostSecret = "https://private-fixture.cloud.databricks.com/path"
+	const hostSecret = "https://workspace-sensitive.example.invalid/path"
 	fake := &fakeRunner{t: t, responses: []response{{
 		want: command("functions", "list", "catalog_a", "schema_a"),
 		stderr: "profile=" + profileSecret + " DATABRICKS_TOKEN=" + tokenSecret +

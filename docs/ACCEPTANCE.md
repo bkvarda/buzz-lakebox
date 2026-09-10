@@ -24,13 +24,13 @@ Cross-checked against `docs/RUNBOOK.md` §9's Deploy block (items 1–4).
 ### 1(a) — non-member throwaway key
 
 RUNBOOK §9 item 1's sub-clauses, run live 2026-07-26 with the operator
-`deploy --payload-file` path on profile `fevm-west` and a throwaway key
-minted for the occasion (npub12 `c6lhtwgue3vc`). Fresh-create verify
+`deploy --payload-file` path on profile `EXAMPLE_PROFILE` and a throwaway key
+minted for the occasion (npub12 `<redacted-npub12>`). Fresh-create verify
 failures run §4.3 teardown, so the in-sandbox rows were captured by a
 probe SSH racing the provision window (§9 item 1 documents this); the
 log rows come from the tail the deploy embeds in its error text.
 
-The first attempt (23:21Z, sandbox `expert-motmot-2453`) returned
+The first attempt (23:21Z, sandbox `<sandbox-id-a>`) returned
 `verify.process_dead` for a log that plainly carried the terminal
 relay-denial line: the classifier checked process liveness first, and a
 non-member key kills buzz-acp in ~1 s, so `relay_denied` was unreachable
@@ -41,23 +41,23 @@ the rows below are from the rerun after that fix.
 
 | Check | Status | Evidence | Date | Sandbox id |
 |---|---|---|---|---|
-| Deploy fails with `verify.relay_denied` | LIVE | `{"ok":false}` `[verify.relay_denied]` in 31 s wall clock (23:26:10→23:26:42Z) | 2026-07-26 | `rested-pufferfish-1626` |
-| Sandbox created for the attempt, then torn down (absent from `sandbox list` once delete settles) | LIVE | id visible in `sandbox list` 2 s after deploy start and named in the error text; `stopping…` immediately after the deploy returned, gone thereafter | 2026-07-26 | `rested-pufferfish-1626` |
-| Binaries (all five, `buzz-agent` ACP-initialize-verified) installed in `$HOME` | LIVE | mid-deploy probe: `bin/` = `buzz, buzz-acp, buzz-agent, buzz-dev-mcp, git-credential-nostr`; the 23:21Z run's embedded log tail shows `agent initialized … "name":"buzz-agent"` | 2026-07-26 | `rested-pufferfish-1626` |
-| Env file is `0600` | LIVE | mid-deploy probe `stat -c %a $HOME/.buzz-backend/env` → `600` | 2026-07-26 | `rested-pufferfish-1626` |
-| In-sandbox `databricks current-user me` fails (PAT reset) | LIVE | mid-deploy probe: exit code 1 | 2026-07-26 | `rested-pufferfish-1626` |
-| acp.log vocabulary; buzz-acp dead at N=10 s | LIVE | 23:21Z error tail carries `buzz-acp starting: relay=wss://…` and `initial relay connect failed with terminal error: Auth failed: restricted: not a relay member`; post-fix, the `relay_denied` code itself only fires on (process dead at N=10 s ∧ terminal-error line), so the 23:26Z error code doubles as the liveness evidence | 2026-07-26 | `expert-motmot-2453`, `rested-pufferfish-1626` |
+| Deploy fails with `verify.relay_denied` | LIVE | `{"ok":false}` `[verify.relay_denied]` in 31 s wall clock (23:26:10→23:26:42Z) | 2026-07-26 | `<sandbox-id-b>` |
+| Sandbox created for the attempt, then torn down (absent from `sandbox list` once delete settles) | LIVE | id visible in `sandbox list` 2 s after deploy start and named in the error text; `stopping…` immediately after the deploy returned, gone thereafter | 2026-07-26 | `<sandbox-id-b>` |
+| Binaries (all five, `buzz-agent` ACP-initialize-verified) installed in `$HOME` | LIVE | mid-deploy probe: `bin/` = `buzz, buzz-acp, buzz-agent, buzz-dev-mcp, git-credential-nostr`; the 23:21Z run's embedded log tail shows `agent initialized … "name":"buzz-agent"` | 2026-07-26 | `<sandbox-id-b>` |
+| Env file is `0600` | LIVE | mid-deploy probe `stat -c %a $HOME/.buzz-backend/env` → `600` | 2026-07-26 | `<sandbox-id-b>` |
+| In-sandbox `databricks current-user me` fails (PAT reset) | LIVE | mid-deploy probe: exit code 1 | 2026-07-26 | `<sandbox-id-b>` |
+| acp.log vocabulary; buzz-acp dead at N=10 s | LIVE | 23:21Z error tail carries `buzz-acp starting: relay=wss://…` and `initial relay connect failed with terminal error: Auth failed: restricted: not a relay member`; post-fix, the `relay_denied` code itself only fires on (process dead at N=10 s ∧ terminal-error line), so the 23:26Z error code doubles as the liveness evidence | 2026-07-26 | `<sandbox-id-a>`, `<sandbox-id-b>` |
 
 ### 1(b) — member test key
 
 Run live 2026-07-27 with the operator `deploy --payload-file` path and
-the "Throwaway Buzz" member test agent (pubkey `fa7b9bf5…`), minted in
+the "Throwaway Buzz" member test agent (pubkey `<redacted-test-pubkey>`), minted in
 Buzz Desktop the same morning.
 
 Finding on the way in: the first attempt carried `auth_tag: ""` and the
 relay denied it (`verify.relay_denied`) even though the key IS a member
 — Buzz Desktop had deployed the same key successfully minutes earlier
-(sandbox `permissive-shrimp-4596`, `agent_pool_ready agents=24`). The
+(sandbox `<sandbox-id-c>`, `agent_pool_ready agents=24`). The
 auth tag is part of relay AUTH, not optional metadata: on the wire, a
 member key with an empty tag is indistinguishable from a non-member.
 RUNBOOK §7's `verify.relay_denied` remedy now says so. This does not
@@ -66,23 +66,23 @@ weaken the 1(a) rows — those keys were genuinely non-members — but a
 
 | Check | Status | Evidence | Date | Sandbox id |
 |---|---|---|---|---|
-| `{ok:true, agent_id}` in < 180 s | LIVE | `{"ok":true,"agent_id":"included-elver-4997"}` in **31.4 s** wall clock (start 16:34:40Z), fresh create — the prior sandbox was undeployed first, dropping its mapping | 2026-07-27 | `included-elver-4997` |
-| `pgrep -f '[b]uzz-acp'` alive at N=10 s | LIVE | `{ok:true}` is gated on the deploy's own N=10 s process check returning alive; post-hoc `pgrep` returned a live pid | 2026-07-27 | `included-elver-4997` |
-| `acp.log` contains `agent_pool_ready agents=N` | LIVE | `agent_pool_ready agents=1` present | 2026-07-27 | `included-elver-4997` |
-| `acp.log` contains no terminal-error line | LIVE | `grep -c "terminal error"` → 0 | 2026-07-27 | `included-elver-4997` |
-| `status <id>` → `acp_running: true` | LIVE | `{"sandbox_status":"Running","acp_running":true}` | 2026-07-27 | `included-elver-4997` |
+| `{ok:true, agent_id}` in < 180 s | LIVE | `{"ok":true,"agent_id":"<sandbox-id-d>"}` in **31.4 s** wall clock (start 16:34:40Z), fresh create — the prior sandbox was undeployed first, dropping its mapping | 2026-07-27 | `<sandbox-id-d>` |
+| `pgrep -f '[b]uzz-acp'` alive at N=10 s | LIVE | `{ok:true}` is gated on the deploy's own N=10 s process check returning alive; post-hoc `pgrep` returned a live pid | 2026-07-27 | `<sandbox-id-d>` |
+| `acp.log` contains `agent_pool_ready agents=N` | LIVE | `agent_pool_ready agents=1` present | 2026-07-27 | `<sandbox-id-d>` |
+| `acp.log` contains no terminal-error line | LIVE | `grep -c "terminal error"` → 0 | 2026-07-27 | `<sandbox-id-d>` |
+| `status <id>` → `acp_running: true` | LIVE | `{"sandbox_status":"Running","acp_running":true}` | 2026-07-27 | `<sandbox-id-d>` |
 
 ### Item 2 — idempotent redeploy
 
 | Check | Status | Evidence | Date | Sandbox id |
 |---|---|---|---|---|
-| Redeploy same agent → same `agent_id`, no second sandbox, one buzz-acp process afterward | LIVE | Redeploy of the identical payload returned the same `agent_id` in 24.8 s; `sandbox list` unchanged (no second sandbox); `.installed_version` mtime **identical** before/after (`1785170092` — the install skip path ran, no .deb re-download); exactly one buzz-acp process group; `agent_pool_ready` present for both launches. (History: commit 5abe10b records this mechanism failing live pre-state-file-fix — every redeploy orphaned the previous sandbox.) | 2026-07-27 | `included-elver-4997` |
+| Redeploy same agent → same `agent_id`, no second sandbox, one buzz-acp process afterward | LIVE | Redeploy of the identical payload returned the same `agent_id` in 24.8 s; `sandbox list` unchanged (no second sandbox); `.installed_version` mtime **identical** before/after (`1785170092` — the install skip path ran, no .deb re-download); exactly one buzz-acp process group; `agent_pool_ready` present for both launches. (History: commit 5abe10b records this mechanism failing live pre-state-file-fix — every redeploy orphaned the previous sandbox.) | 2026-07-27 | `<sandbox-id-d>` |
 
 ### Item 3 — induced-failure teardown
 
 | Check | Status | Evidence | Date | Sandbox id |
 |---|---|---|---|---|
-| Kill the deploy's `install-exec` SSH child on a fresh create → `{ok:false}` naming the sandbox id, sandbox absent from `sandbox list` afterward | LIVE | `pkill -f 'buzz-step:install-exec'` fired 6 s into the deploy (23:29:29Z); deploy returned `[install.exec] … signal: terminated` naming the sandbox in 8.4 s; by 23:29:56Z `sandbox list` showed only the pre-existing live sandbox — teardown deleted it, no manual cleanup | 2026-07-26 | `exemplary-jennet-8274` |
+| Kill the deploy's `install-exec` SSH child on a fresh create → `{ok:false}` naming the sandbox id, sandbox absent from `sandbox list` afterward | LIVE | `pkill -f 'buzz-step:install-exec'` fired 6 s into the deploy (23:29:29Z); deploy returned `[install.exec] … signal: terminated` naming the sandbox in 8.4 s; by 23:29:56Z `sandbox list` showed only the pre-existing live sandbox — teardown deleted it, no manual cleanup | 2026-07-26 | `<sandbox-id-e>` |
 
 ---
 

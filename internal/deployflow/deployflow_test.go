@@ -19,9 +19,9 @@ import (
 	"github.com/IceRhymers/buzz-lakebox/internal/state"
 )
 
-// testNsec is a throwaway nostr private key used only for
+// testNsec is a deterministic all-0x01 synthetic key used only for
 // identity-derivation math in tests (never a live relay credential).
-const testNsec = "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5"
+const testNsec = "nsec1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqstywftw"
 
 // --- fake `databricks` CLI shim -------------------------------------------
 //
@@ -692,8 +692,8 @@ func TestDeploy_LaunchVerifyFails_TerminalError_ReusedSandbox_KillsNoDelete(t *t
 // dead AND the log carries the terminal-error line. That must classify as
 // verify.relay_denied, not the generic verify.process_dead — the prior
 // liveness-first ordering made relay_denied unreachable in exactly the
-// scenario it was built for (found live: sandbox expert-motmot-2453,
-// 2026-07-26).
+// scenario it was built for (found during a live probe on 2026-07-26;
+// the sandbox identifier is intentionally redacted).
 func TestDeploy_LaunchVerifyFails_TerminalError_DeadProcess_ClassifiesRelayDenied(t *testing.T) {
 	h := newHarness(t)
 	t.Setenv("FAKE_VERSION", "1.9.0")

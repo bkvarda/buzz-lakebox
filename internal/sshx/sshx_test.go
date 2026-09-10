@@ -57,13 +57,13 @@ func TestRun_NoStdin(t *testing.T) {
 	t.Setenv("FAKE_LOG", logFile)
 
 	c := &Client{Bin: filepath.Join(dir, "databricks")}
-	if _, err := c.Run(context.Background(), "tanner-west", "sandbox-1", "echo hi"); err != nil {
+	if _, err := c.Run(context.Background(), "EXAMPLE_PROFILE", "sandbox-1", "echo hi"); err != nil {
 		t.Fatalf("Run() error: %v", err)
 	}
 
 	data, _ := os.ReadFile(logFile)
 	log := string(data)
-	if !strings.Contains(log, "ARGS:sandbox ssh sandbox-1 -p tanner-west -- echo hi") {
+	if !strings.Contains(log, "ARGS:sandbox ssh sandbox-1 -p EXAMPLE_PROFILE -- echo hi") {
 		t.Fatalf("log missing expected argv shape: %q", log)
 	}
 	if !strings.Contains(log, "STDIN:\n") {
@@ -79,7 +79,7 @@ func TestRunWithStdin_TransportsBytesVerbatim(t *testing.T) {
 
 	c := &Client{Bin: filepath.Join(dir, "databricks")}
 	secret := "nsec1supersecretvalue0000000000000000000000000000000000000"
-	if _, err := c.RunWithStdin(context.Background(), "tanner-west", "sandbox-1", "cat > /tmp/x", strings.NewReader(secret)); err != nil {
+	if _, err := c.RunWithStdin(context.Background(), "EXAMPLE_PROFILE", "sandbox-1", "cat > /tmp/x", strings.NewReader(secret)); err != nil {
 		t.Fatalf("RunWithStdin() error: %v", err)
 	}
 
@@ -105,7 +105,7 @@ func TestRun_FailureIncludesOutputAndSandboxContext(t *testing.T) {
 	t.Setenv("FAKE_EXIT", "1")
 
 	c := &Client{Bin: filepath.Join(dir, "databricks")}
-	_, err := c.Run(context.Background(), "tanner-west", "sandbox-99", "false")
+	_, err := c.Run(context.Background(), "EXAMPLE_PROFILE", "sandbox-99", "false")
 	if err == nil {
 		t.Fatal("expected error")
 	}

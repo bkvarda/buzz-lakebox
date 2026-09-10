@@ -84,7 +84,7 @@ func TestDeploy_SandboxInferenceAuth_WarnsOnStderr(t *testing.T) {
 		"agent": {
 			"name": "reviewer",
 			"relay_url": "wss://relay.example.com",
-			"private_key_nsec": "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5",
+			"private_key_nsec": "nsec1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqstywftw",
 			"auth_tag": "tag",
 			"agent_command": "buzz-agent"
 		},
@@ -126,7 +126,7 @@ func TestDeploy_EnvModeDefault_NoStderrWarning(t *testing.T) {
 		"agent": {
 			"name": "reviewer",
 			"relay_url": "wss://relay.example.com",
-			"private_key_nsec": "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5",
+			"private_key_nsec": "nsec1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqstywftw",
 			"auth_tag": "tag",
 			"agent_command": "buzz-agent"
 		}

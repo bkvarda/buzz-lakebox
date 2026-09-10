@@ -1,20 +1,20 @@
-# Databricks Sandbox (Lakebox) live probe results — tanner-west
+# Databricks Sandbox (Lakebox) live probe results — sanitized environment
 
-> Lane C of the Databricks-sandbox deep-dive (2026-07-24). All probes run live against profile `tanner-west` (https://dbc-31174ae0-1a02.cloud.databricks.com, AWS us-west-2, workspace 7474653212437233). Companion docs: [BUZZ_AGENT_SESSION_ARCHITECTURE.md](BUZZ_AGENT_SESSION_ARCHITECTURE.md) (lane A), [OMNIGENT_DATABRICKS_SANDBOX_PATTERNS.md](OMNIGENT_DATABRICKS_SANDBOX_PATTERNS.md) (lane B).
+> Lane C of the Databricks-sandbox deep-dive (2026-07-24). All probes run live against profile `EXAMPLE_PROFILE` (`https://workspace.example.invalid`, AWS `example-region-1`, workspace `<workspace-id>`). Companion docs: [BUZZ_AGENT_SESSION_ARCHITECTURE.md](BUZZ_AGENT_SESSION_ARCHITECTURE.md) (lane A), [OMNIGENT_DATABRICKS_SANDBOX_PATTERNS.md](OMNIGENT_DATABRICKS_SANDBOX_PATTERNS.md) (lane B).
 
 ## Naming resolution (supersedes lane B's "internal CLI only" caveat)
 
 The product shipped publicly since omnigent's integration was written. It is now **Databricks Sandbox**: `databricks sandbox` command group in the **stock public CLI** (verified in Homebrew CLI v1.8.0 locally — no demo build needed). The REST namespace is still the old codename: `/api/2.0/lakebox/...`. Public docs: docs.databricks.com `compute/serverless/sandbox` and `dev-tools/cli/reference/sandbox-commands`. Rename PR: databricks/cli#5487. (Source: Glean; confirmed live below.)
 
-Region caveat confirmed: the preview is region-scoped — Tanner: not enabled at the account level for `fevm`; `tanner` profile's region lacks the preview; `tanner-west` (us-west-2) works. Gateway host returned: `us-west-2.service-direct.cloud.databricks.com`.
+Region caveat confirmed: the preview is region-scoped — it was not enabled for one tested account/region, while `example-region-1` worked. The returned regional gateway host is redacted.
 
 ## API / CLI surface (verified live)
 
-- REST: `GET/POST /api/2.0/lakebox/sandboxes`, `GET/PATCH/DELETE /sandboxes/{id}`, `POST /sandboxes/{id}/start|stop`, `POST /ssh-keys`. `GET /api/2.0/lakebox/sandboxes` returned `{}` on tanner-west (endpoint live). Create payload: `{"sandbox": {"name": ...}}` — name is the only caller-settable field; **no image, CPU/RAM, or disk knobs**.
+- REST: `GET/POST /api/2.0/lakebox/sandboxes`, `GET/PATCH/DELETE /sandboxes/{id}`, `POST /sandboxes/{id}/start|stop`, `POST /ssh-keys`. `GET /api/2.0/lakebox/sandboxes` returned `{}` on `EXAMPLE_PROFILE` (endpoint live). Create payload: `{"sandbox": {"name": ...}}` — name is the only caller-settable field; **no image, CPU/RAM, or disk knobs**.
 - CLI: `register` (SSH keypair → `~/.ssh/sandbox_ed25519`), `create`, `list`, `status`, `ssh [id] [-- cmd|ssh-flags]`, `config` (`--name`, `--idle-timeout 1m–24h`, `--no-autostop`), `default`, `start`, `stop`, `delete`, `ssh-key`.
 - Status JSON: `{sandboxId, status, gatewayHost, name, idleTimeout: "600s", noAutostop}`.
 
-## Measured lifecycle (sandbox `ample-rattlesnake-3491`, created + deleted this session)
+## Measured lifecycle (sandbox `<sandbox-id>`, created + deleted this session)
 
 | Operation | Result |
 |---|---|
@@ -29,13 +29,13 @@ Region caveat confirmed: the preview is region-scoped — Tanner: not enabled at
 - Ubuntu 24.04.4 LTS, x86_64, 4 vCPU, 8.1 GiB RAM, ~10 GB overlay disk. User `sandbox-agent` (uid 10086), home `/home/sandbox-agent`.
 - Preinstalled: Python 3.12.3, Node 22.22.3, cargo 1.75.0, git 2.54.0, Databricks CLI v1.7.0.
 - PID 1 is `/usr/bin/sandbox-daemon --enable-sshd`; also `ttyd` (web terminal) and sshd. SSH rides the gateway on port 2222; the CLI handles ProxyCommand wiring itself (non-interactive `register` skips ssh-config edits but `sandbox ssh` still works).
-- **Baked credential**: `~/.databrickscfg` has a `[DEFAULT]` PAT for the sandbox's workspace, authenticating as **the sandbox creator** (verified: `databricks current-user me` → Tanner). Matches omnigent's "baked PAT" gotcha (theirs was a shared PAT; here it's per-creator). Any agent in the sandbox can act on the workspace as the creating user unless this file is reset.
+- **Baked credential**: `~/.databrickscfg` has a `[DEFAULT]` PAT for the sandbox's workspace, authenticating as **the sandbox creator** (verified: `databricks current-user me` → the sandbox creator). Matches omnigent's "baked PAT" gotcha (theirs was a shared PAT; here it's per-creator). Any agent in the sandbox can act on the workspace as the creating user unless this file is reset.
 
 ## Network egress (probed from inside)
 
 | Target | Result |
 |---|---|
-| `https://databricks-adtech.communities.buzz.xyz` (Buzz relay) | 200 in 157 ms |
+| `https://relay.example.invalid` (Buzz relay) | 200 in 157 ms |
 | **WSS handshake to relay (Node 22 WebSocket)** | **OPEN; relay sent NIP-42 `["AUTH", <challenge>]`** |
 | github.com / registry.npmjs.org / pypi.org | 200 (public internet open — unlike omnigent's corp-network lakebox note) |
 | api.anthropic.com/v1/models | 401 (reachable; auth required, as expected) |
@@ -66,9 +66,9 @@ Region caveat confirmed: the preview is region-scoped — Tanner: not enabled at
 ## Verbatim reproduction
 
 ```bash
-databricks sandbox register -p tanner-west
-databricks sandbox create --name buzz-probe --json -p tanner-west         # 1.1s → Running
-databricks sandbox ssh <id> -p tanner-west -- 'uname -a'                  # exec, non-interactive OK
-databricks sandbox config <id> --no-autostop -p tanner-west
-databricks sandbox delete <id> --auto-approve -p tanner-west
+databricks sandbox register -p EXAMPLE_PROFILE
+databricks sandbox create --name buzz-probe --json -p EXAMPLE_PROFILE         # 1.1s → Running
+databricks sandbox ssh <id> -p EXAMPLE_PROFILE -- 'uname -a'                  # exec, non-interactive OK
+databricks sandbox config <id> --no-autostop -p EXAMPLE_PROFILE
+databricks sandbox delete <id> --auto-approve -p EXAMPLE_PROFILE
 ```
