@@ -12,7 +12,7 @@ const validDeployJSON = `{
   "agent": {
     "name": "Reviewer",
     "relay_url": "wss://relay.example.com",
-    "private_key_nsec": "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5",
+    "private_key_nsec": "nsec1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqstywftw",
     "auth_tag": "tag-abc",
     "agent_command": "buzz-agent",
     "agent_args": ["--flag"],
@@ -28,7 +28,7 @@ const validDeployJSON = `{
     "env_vars": {"FOO": "bar"}
   },
   "provider_config": {
-    "profile": "tanner-west",
+    "profile": "EXAMPLE_PROFILE",
     "idle_timeout": "1h",
     "keep_workspace_pat": false,
     "buzz_version": "0.4.24"
@@ -52,7 +52,7 @@ func TestParseDeployRequest_GoldenValid(t *testing.T) {
 	if req.Agent.Provider == nil || *req.Agent.Provider != "databricks_v2" {
 		t.Fatalf("Agent.Provider = %v", req.Agent.Provider)
 	}
-	if req.ProviderConfig.Profile != "tanner-west" {
+	if req.ProviderConfig.Profile != "EXAMPLE_PROFILE" {
 		t.Fatalf("ProviderConfig.Profile = %q", req.ProviderConfig.Profile)
 	}
 	if err := req.Validate(); err != nil {

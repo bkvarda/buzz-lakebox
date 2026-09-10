@@ -19,7 +19,7 @@ import (
 // stdin only, never argv").
 
 const (
-	markerNsec     = "nsec1vl029mgpspedva04g90vltkh6fvh240zqtv9k0t9af8935ke9laqsnlfe5"
+	markerNsec     = "nsec1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqstywftw"
 	markerAuthTag  = "MRKR-auth-tag-4f21a9c8"
 	markerToken    = "MRKR-databricks-token-b71e3d55"
 	markerAPIKey   = "MRKR-third-party-api-key-9c04af12"

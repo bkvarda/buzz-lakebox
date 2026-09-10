@@ -10,14 +10,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
+
+	"github.com/IceRhymers/buzz-lakebox/internal/httpmcp"
 )
 
 const (
@@ -42,7 +41,7 @@ type options struct {
 
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "bzhttpmcp: %s\n", redact(err.Error(), os.Getenv("DATABRICKS_TOKEN")))
+		_, _ = fmt.Fprintf(os.Stderr, "bzhttpmcp: %s\n", httpmcp.Redact(err.Error(), os.Getenv("DATABRICKS_TOKEN")))
 		os.Exit(1)
 	}
 }
@@ -57,7 +56,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if token == "" {
 		return fmt.Errorf("DATABRICKS_TOKEN is not set")
 	}
-	if err := validateHeaderValue(token); err != nil {
+	if err := httpmcp.ValidateHeaderValue(token); err != nil {
 		return fmt.Errorf("DATABRICKS_TOKEN is invalid")
 	}
 
@@ -65,7 +64,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if err != nil {
 		return err
 	}
-	client := newHTTPClient(endpoint, opts.timeout)
+	client := httpmcp.NewHTTPClient(opts.timeout)
 	b := newBridge(client, endpoint, token, stdin, stdout, stderr)
 	return b.run(ctx)
 }
@@ -96,50 +95,12 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	return opts, nil
 }
 
-func newHTTPClient(endpoint *url.URL, timeout time.Duration) *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = http.ProxyFromEnvironment
-	transport.DialContext = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
-	transport.TLSHandshakeTimeout = 10 * time.Second
-	transport.ResponseHeaderTimeout = 30 * time.Second
-	transport.ExpectContinueTimeout = time.Second
-
-	return &http.Client{
-		Transport: transport,
-		Timeout:   timeout,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+func newHTTPClient(_ *url.URL, timeout time.Duration) *http.Client {
+	return httpmcp.NewHTTPClient(timeout)
 }
 
 func sameAuthority(a, b *url.URL) bool {
 	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
-func validateHeaderValue(value string) error {
-	if !utf8.ValidString(value) {
-		return fmt.Errorf("invalid UTF-8")
-	}
-	for _, r := range value {
-		if r == 0 || r == '\r' || r == '\n' || unicode.IsControl(r) {
-			return fmt.Errorf("control character")
-		}
-	}
-	return nil
-}
-
-// redact is a final defense for diagnostics. Request and response bodies are
-// never logged, and callers additionally pass the exact environment token.
-func redact(message, token string) string {
-	if token != "" {
-		message = strings.ReplaceAll(message, token, "[REDACTED]")
-	}
-	fields := strings.Fields(message)
-	for i := 0; i+1 < len(fields); i++ {
-		if strings.EqualFold(strings.Trim(fields[i], ",;:"), "bearer") {
-			message = strings.ReplaceAll(message, fields[i+1], "[REDACTED]")
-		}
-	}
-	return message
-}
+func redact(message, token string) string { return httpmcp.Redact(message, token) }

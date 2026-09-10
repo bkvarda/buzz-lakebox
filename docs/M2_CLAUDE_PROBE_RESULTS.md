@@ -1,6 +1,6 @@
 # M2 Claude Code Probe Session Results
 
-> Live session on the `west` profile (`dbc-31174ae0-1a02`, **us-west-2** — the workspace `docs/M05_PROBE_RESULTS.md` calls `tanner-west`; no profile of that name exists in `~/.databrickscfg` today), 2026-07-27/28. Databricks CLI v1.8.0. Sandbox `practical-urial-7607`, `--no-autostop`, **deleted at session end**. Adapter under test: `@agentclientprotocol/claude-agent-acp@0.63.0`.
+> Live session on the `EXAMPLE_PROFILE` (`workspace.example.invalid`, **`example-region-1`**), 2026-07-27/28. Databricks CLI v1.8.0. Sandbox `<sandbox-id>`, `--no-autostop`, **deleted at session end**. Adapter under test: `@agentclientprotocol/claude-agent-acp@0.63.0`.
 >
 > Auth note: gateway probes P1–P3 used a CLI **OAuth** bearer token from the operator laptop; the in-sandbox probes used the sandbox's **baked creator-identity PAT**, derived from `~/.databrickscfg` exactly the way `nest.SandboxAuthSnippet` does. M0.5 §2 already proved a PAT works on this endpoint with the same `Authorization: Bearer` header shape.
 >

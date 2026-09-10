@@ -5,7 +5,7 @@ Everything here runs on **your** machine against **your** Databricks
 profile; the provider binary is the only tool you need beyond the stock
 `databricks` CLI.
 
-`<id>` below is a sandbox id (e.g. `cherished-piglet-2474`). Every
+`<id>` below is a sandbox id (e.g. `<sandbox-id>`). Every
 subcommand resolves the sandbox for you when the profile has exactly one
 — pass the id explicitly when it has several.
 

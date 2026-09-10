@@ -75,6 +75,8 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newStartCmd(&profile))
 	root.AddCommand(newLogsCmd(&profile))
 	root.AddCommand(newUndeployCmd(&profile))
+	root.AddCommand(newConfigCmd())
+	root.AddCommand(newMCPCommand(&profile, realOperatorDeps()))
 
 	return root
 }

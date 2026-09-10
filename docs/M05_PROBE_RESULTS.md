@@ -1,11 +1,11 @@
 # M0.5 Probe Session Results
 
-> Live session on `tanner-west` (us-west-2), 2026-07-24 22:17–22:35 UTC (run in two sittings: the first was interrupted mid-WSS-window; the second re-verified probes 1–3/5/6 against the live sandboxes and observed the WSS-idle outcome for real). Databricks CLI v1.8.0. Buzz release `v0.4.24` (`Buzz_0.4.24_amd64.deb`, sha256 `ee9e58cf92707993f24f2eed18721ece6029e0b869c71770ad4a5d6e05f820d2`). Two sandboxes: `m05-work` (`cherished-piglet-2474`, interactive probes) and `m05-wss-idle` (`fortifying-ladybeetle-8254`, untouched idle window). Both deleted at session end. Answers the four questions PLAN.md §6 M0.5 poses, plus the AI Gateway question raised by the owner. Throwaway nostr key only; no real identity left the keyring.
+> Live session on `EXAMPLE_PROFILE` (`example-region-1`), 2026-07-24 22:17–22:35 UTC (run in two sittings: the first was interrupted mid-WSS-window; the second re-verified probes 1–3/5/6 against the live sandboxes and observed the WSS-idle outcome for real). Databricks CLI v1.8.0. Buzz release `v0.4.24` (`Buzz_0.4.24_amd64.deb`, sha256 `ee9e58cf92707993f24f2eed18721ece6029e0b869c71770ad4a5d6e05f820d2`). Two sandboxes: `m05-work` (`<sandbox-id-a>`, interactive probes) and `m05-wss-idle` (`<sandbox-id-b>`, untouched idle window). Both deleted at session end. Answers the four questions PLAN.md §6 M0.5 poses, plus the AI Gateway question raised by the owner. Throwaway nostr key only; no real identity left the keyring.
 
 ## 1. SSH-stdin secret transport — VERIFIED ✅
 
 ```
-printf 'stdin-probe-payload-12345\n' | databricks sandbox ssh <id> -p tanner-west -- 'cat > /tmp/stdin-probe && sha256sum /tmp/stdin-probe'
+printf 'stdin-probe-payload-12345\n' | databricks sandbox ssh <id> -p EXAMPLE_PROFILE -- 'cat > /tmp/stdin-probe && sha256sum /tmp/stdin-probe'
 ```
 
 Byte-identical: sha256 `e6a4d9f7…eca24` (26 bytes) matched on both sides, exit 0. **PLAN §4.4 step 7's primary transport works as designed; no fallback needed.** (The revised fallback — raw ssh over CLI-generated ProxyCommand — remains documented but unexercised.)

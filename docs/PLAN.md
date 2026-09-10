@@ -2,7 +2,7 @@
 
 > Consensus plan, 2026-07-24, produced via ralplan: independent planner draft → independent critic review (13 findings, all resolved, final verdict ACCEPT) → coordinator synthesis with source verification against `block/buzz` @ `3bd3a014c6` (`desktop/src-tauri/src/commands/agents_deploy.rs`, `agents.rs`). Sources: `README.md`, `docs/BUZZ_AGENT_SESSION_ARCHITECTURE.md` (lane A), `docs/OMNIGENT_DATABRICKS_SANDBOX_PATTERNS.md` (lane B), `docs/LAKEBOX_LIVE_PROBE_RESULTS.md` (lane C). Unverified details are marked OPEN QUESTION; owner calls are in §9.
 >
-> **Updated 2026-07-24 (post-M0.5):** the M0.5 probe session ran live on tanner-west — results in `docs/M05_PROBE_RESULTS.md` (lane D). All four §9 owner decisions are resolved and every M0.5-gated unknown is settled; the affected sections below are updated in place and marked *(M0.5)*.
+> **Updated 2026-07-24 (post-M0.5):** the M0.5 probe session ran live on a sanitized test workspace — results in `docs/M05_PROBE_RESULTS.md` (lane D). All four §9 owner decisions are resolved and every M0.5-gated unknown is settled; the affected sections below are updated in place and marked *(M0.5)*.
 
 ## 0. Verified deploy-payload contract (closes the draft's envelope open question)
 
@@ -282,7 +282,7 @@ Two related non-claims. **Nothing here asserts anything about network posture.**
 
 ---
 
-## 9. DECISIONS — all resolved (owner: Tanner, 2026-07-24)
+## 9. DECISIONS — all resolved (owner approval recorded 2026-07-24)
 
 1. **nsec trust boundary — CONFIRMED.** Per-agent minted keys may ship into Databricks-managed Beta storage; rotation-on-suspicion is the remedy. §5 controls apply.
 2. **Baked creator PAT — RESET by default.** The provider overwrites `~/.databrickscfg` with a stub (§4.4 step 4); the agent cannot act as the owner via ambient CLI credentials. Inference auth is instead passed explicitly as `DATABRICKS_HOST`/`DATABRICKS_TOKEN` in the agent env file — the two are compatible because buzz-agent's Databricks providers read env, not the cfg file *(M0.5, lane D §2)*. `keep_workspace_pat: true` remains the documented opt-in. Least-privilege upgrade path: a service-principal token with CAN QUERY on just the gateway endpoints.

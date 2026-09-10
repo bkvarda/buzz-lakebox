@@ -449,8 +449,8 @@ func TestCodexEnv_HostileHostWritesNoConfig(t *testing.T) {
 // becoming a denial of service against legitimate hosts.
 func TestCodexEnv_WellFormedHostsStillAccepted(t *testing.T) {
 	for _, host := range []string{
-		"https://dbc-31174ae0-1a02.cloud.databricks.com",
-		"dbc-31174ae0-1a02.cloud.databricks.com",
+		"https://workspace.example.invalid",
+		"workspace.example.invalid",
 		"http://localhost:8080",
 		"https://example.databricks.com/",
 		"https://my_workspace.example.com",

@@ -1,6 +1,6 @@
 # M3 Codex Probe Session Results
 
-> Live session on the `west` profile (`dbc-31174ae0-1a02`, us-west-2), 2026-07-28. Sandbox `inventive-tamarin-7000`, **deleted at session end**. Adapter under test: `@agentclientprotocol/codex-acp@1.1.7` (latest; `beta` dist-tag is `0.0.40`).
+> Live session on the `EXAMPLE_PROFILE` (`workspace.example.invalid`, `example-region-1`), 2026-07-28. Sandbox `<sandbox-id-a>`, **deleted at session end**. Adapter under test: `@agentclientprotocol/codex-acp@1.1.7` (latest; `beta` dist-tag is `0.0.40`).
 >
 > Auth note: gateway probes G1–G5 used a CLI **OAuth** bearer token from the operator laptop; in-sandbox probes S1–S6 used the sandbox's **baked creator-identity PAT**, derived from `~/.databrickscfg` the way `nest.SandboxAuthSnippet` does.
 >
@@ -188,7 +188,7 @@ Setting `model_context_window` / `model_max_output_tokens` explicitly **does not
 
 ---
 
-## S7. `sandbox_mode` and `approval_policy` are INERT under the ACP adapter 🚨 (second sandbox, `lush-bat-4738`, deleted)
+## S7. `sandbox_mode` and `approval_policy` are INERT under the ACP adapter 🚨 (second sandbox, `<sandbox-id-b>`, deleted)
 
 Run to settle whether the provider should ship `sandbox_mode = "danger-full-access"` (what S5 used) or the narrower `workspace-write` that upstream buzz-acp's `codex_network_env` implies. The same three-part shell task — write inside cwd, write to `/tmp`, `curl` an external host — was run under three `sandbox_mode` values:
 
