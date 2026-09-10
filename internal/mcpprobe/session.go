@@ -22,6 +22,7 @@ var supportedProtocolVersions = map[string]struct{}{
 	"2024-11-05": {},
 	"2025-03-26": {},
 	"2025-06-18": {},
+	"2025-11-25": {},
 }
 
 func supportedProtocolVersion(version string) bool {
