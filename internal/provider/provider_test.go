@@ -2,7 +2,10 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -13,10 +16,10 @@ import (
 // run is a test helper driving the same entrypoint main.go uses in
 // provider mode, so these tests exercise real end-to-end behavior rather
 // than internals.
-func run(t *testing.T, input string, deploy DeployFunc) (line string, err error) {
+func run(t *testing.T, input string, deploy DeployFunc, opts ...Option) (line string, err error) {
 	t.Helper()
 	var out bytes.Buffer
-	err = Run(strings.NewReader(input), &out, deploy)
+	err = Run(strings.NewReader(input), &out, deploy, opts...)
 	return out.String(), err
 }
 
@@ -54,7 +57,7 @@ func TestInfo_FrozenShape(t *testing.T) {
 				"profile": map[string]any{
 					"type":        "string",
 					"title":       "Databricks CLI profile",
-					"description": "Databricks CLI profile selection; empty = the build's baked default.",
+					"description": "Enter a local Databricks CLI profile name, or leave empty for automatic selection. Current Buzz renders this as text; discovered choices require renderer support for a clickable dropdown.",
 				},
 				"inference_auth": map[string]any{
 					"type":    "string",
@@ -110,6 +113,137 @@ func TestInfo_FrozenShape(t *testing.T) {
 	if pv != 1 {
 		t.Fatalf("protocol_version = %v, want 1", pv)
 	}
+}
+
+type fakeDiscoverer struct {
+	profiles []Profile
+	err      error
+	calls    int
+}
+
+func (d *fakeDiscoverer) DiscoverProfiles(context.Context) ([]Profile, error) {
+	d.calls++
+	return d.profiles, d.err
+}
+
+func TestInfo_DynamicProfileSchemaAndFrozenTopLevelShape(t *testing.T) {
+	discoverer := &fakeDiscoverer{profiles: []Profile{
+		{Name: "alpha", Host: "https://a.example"},
+		{Name: "zeta", Host: "https://z.example"},
+	}}
+	line, err := run(t, `{"op":"info"}`, nil, WithProfileDiscovery(discoverer, "zeta"))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	m := decodeLine(t, line)
+	if len(m) != 6 {
+		t.Fatalf("info top-level fields = %d, want exactly 6: %#v", len(m), m)
+	}
+	schema := m["config_schema"].(map[string]any)
+	profile := schema["properties"].(map[string]any)["profile"].(map[string]any)
+	if got, want := profile["enum"], []any{"", "alpha", "zeta"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("profile enum = %#v, want %#v", got, want)
+	}
+	if got := profile["default"]; got != "zeta" {
+		t.Fatalf("profile default = %#v, want zeta", got)
+	}
+	if description, _ := profile["description"].(string); !strings.Contains(description, "text input") || !strings.Contains(description, "alpha, zeta") || !strings.Contains(description, "clickable dropdown") {
+		t.Fatalf("profile description is not current-renderer compatible: %q", description)
+	}
+}
+
+func TestInfo_DynamicProfileSchemaDefaultOnlyWhenDeterministic(t *testing.T) {
+	discoverer := &fakeDiscoverer{profiles: []Profile{
+		{Name: "alpha", Host: "https://a.example"},
+		{Name: "zeta", Host: "https://z.example"},
+	}}
+	line, err := run(t, `{"op":"info"}`, nil, WithProfileDiscovery(discoverer, "DEFAULT"))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	m := decodeLine(t, line)
+	profile := m["config_schema"].(map[string]any)["properties"].(map[string]any)["profile"].(map[string]any)
+	if _, exists := profile["default"]; exists {
+		t.Fatalf("ambiguous profile schema must not set default: %#v", profile)
+	}
+}
+
+func TestInfo_UnavailableDiscoveryUsesStaticFallback(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		discoverer *fakeDiscoverer
+	}{
+		{name: "failure", discoverer: &fakeDiscoverer{err: errors.New("dapi-secret-that-must-not-escape")}},
+		{name: "no workspace profiles", discoverer: &fakeDiscoverer{profiles: []Profile{}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			line, err := run(t, `{"op":"info"}`, nil, WithProfileDiscovery(test.discoverer, "DEFAULT"))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			m := decodeLine(t, line)
+			if len(m) != 6 || m["ok"] != true {
+				t.Fatalf("unavailable discovery changed frozen response: %#v", m)
+			}
+			profile := m["config_schema"].(map[string]any)["properties"].(map[string]any)["profile"].(map[string]any)
+			if _, exists := profile["enum"]; exists {
+				t.Fatalf("static fallback unexpectedly has enum: %#v", profile)
+			}
+			if strings.Contains(line, "dapi-secret") {
+				t.Fatalf("info response leaked discovery error: %s", line)
+			}
+		})
+	}
+}
+
+func TestDeploy_ExplicitProfileBypassesDiscovery(t *testing.T) {
+	discoverer := &fakeDiscoverer{err: errors.New("should not be called")}
+	body := `{"op":"deploy","agent":{"name":"a","relay_url":"wss://relay","private_key_nsec":"nsec1x","auth_tag":"tag","agent_command":"buzz-agent"},"provider_config":{"profile":"explicit"}}`
+	line, err := run(t, body, func(req *payload.DeployRequest) (string, error) {
+		if req.ProviderConfig.Profile != "explicit" {
+			t.Fatalf("profile = %q", req.ProviderConfig.Profile)
+		}
+		return "sandbox-123", nil
+	}, WithProfileDiscovery(discoverer, "DEFAULT"))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if discoverer.calls != 0 {
+		t.Fatalf("discovery calls = %d, want 0", discoverer.calls)
+	}
+	if m := decodeLine(t, line); m["ok"] != true {
+		t.Fatalf("deploy failed: %#v", m)
+	}
+}
+
+func TestDeploy_AutoSelectsAndRefusesAmbiguity(t *testing.T) {
+	body := `{"op":"deploy","agent":{"name":"a","relay_url":"wss://relay","private_key_nsec":"nsec1x","auth_tag":"tag","agent_command":"buzz-agent"}}`
+	t.Run("single", func(t *testing.T) {
+		discoverer := &fakeDiscoverer{profiles: []Profile{{Name: "only", Host: "https://a.example"}}}
+		line, err := run(t, body, func(req *payload.DeployRequest) (string, error) {
+			if req.ProviderConfig.Profile != "only" {
+				t.Fatalf("profile = %q, want only", req.ProviderConfig.Profile)
+			}
+			return "sandbox-123", nil
+		}, WithProfileDiscovery(discoverer, "DEFAULT"))
+		if err != nil || decodeLine(t, line)["ok"] != true {
+			t.Fatalf("deploy: err=%v line=%s", err, line)
+		}
+	})
+	t.Run("ambiguous", func(t *testing.T) {
+		discoverer := &fakeDiscoverer{profiles: []Profile{{Name: "alpha", Host: "https://a.example"}, {Name: "zeta", Host: "https://z.example"}}}
+		line, err := run(t, body, func(*payload.DeployRequest) (string, error) {
+			t.Fatal("deploy must not run after ambiguous profile discovery")
+			return "", nil
+		}, WithProfileDiscovery(discoverer, "DEFAULT"))
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		m := decodeLine(t, line)
+		if m["ok"] != false || !strings.Contains(m["error"].(string), "available profiles: alpha, zeta") {
+			t.Fatalf("unexpected ambiguity response: %#v", m)
+		}
+	})
 }
 
 func keysOf(m map[string]any) []string {

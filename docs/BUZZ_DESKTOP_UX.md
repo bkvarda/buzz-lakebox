@@ -44,7 +44,7 @@ For this provider, the resulting flow is:
 - choose **Databricks v2** and a model where that harness supports Buzz model
   projection;
 - choose **Run on → databricks-lakebox**;
-- enter the local CLI profile and optional Lakebox MCP/skills settings.
+- choose a local CLI profile name from the provider's discovered guidance (or leave it empty when automatic selection is unambiguous), then enter optional Lakebox MCP/skills settings. The provider emits profile `enum` metadata, but current Buzz still renders a text input; a clickable dropdown requires renderer support.
 
 The current model behavior is not yet uniform across all supported harnesses:
 
@@ -65,7 +65,12 @@ provider/runtime compatibility work, not just a UI label.
 renders every property with the same one-line `Input`. It reads only
 `title`, `description`, `default`, `type`, and `required`; arrays, nested
 objects, enums, secret presentation, text areas, resource discovery, and
-cross-field constraints have no first-class representation.
+cross-field constraints have no first-class representation. Lakebox now
+performs local, skip-validation profile discovery itself, puts the sorted names
+in the field description for this renderer, and emits a string `enum` for a
+future renderer. It also deterministically selects the baked default or the
+sole discovered profile when the field is empty; it refuses to guess between
+multiple profiles.
 
 That is why `mcp_config` and `skills_config` are compact JSON strings today.
 The Lakebox CLI provides safe `discover`, `validate`, and `probe` operations,
