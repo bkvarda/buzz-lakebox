@@ -67,8 +67,9 @@ const selftestProtocolVersion = "2024-11-05"
 // apart and mux-mode verify stays a literal superset of the selftest (issue
 // #17, plan Question A/E). It spawns and initializes every server in cfg
 // concurrently (each bounded by ctx), then runs the §5B collision/`__`/64-byte
-// budget validations (via initialize+mergeCatalogs), the protocolVersion
-// mismatch gate, and the buildToolsListResult JSON smoke check.
+// budget validations (via initialize+mergeCatalogs) and the buildToolsListResult
+// JSON smoke check. Children may negotiate different supported protocol versions;
+// each child's selected version is tracked and sent back by its own bridge.
 //
 // It returns the spawned children (ALWAYS, even on error, so the caller can
 // kill them) and the merged catalog. A non-nil error carries a clear,
@@ -128,19 +129,6 @@ func runCatalogCheck(ctx context.Context, cfg *muxcfg.Config, protocolVersion st
 	_, catalog, err := mergeCatalogs(children)
 	if err != nil {
 		return children, nil, fmt.Errorf("catalog validation: %w", err)
-	}
-
-	// Check protocolVersion mismatches (the gate mux-mode verify must keep).
-	var versionIssues []string
-	for _, c := range children {
-		if c.protocolVersion != "" && c.protocolVersion != protocolVersion {
-			versionIssues = append(versionIssues, fmt.Sprintf(
-				"child %q negotiated protocolVersion %q, bzmux offered %q",
-				c.name, c.protocolVersion, protocolVersion))
-		}
-	}
-	if len(versionIssues) > 0 {
-		return children, nil, fmt.Errorf("protocolVersion mismatch: %s", strings.Join(versionIssues, "; "))
 	}
 
 	// Check that the merged catalog JSON is valid (smoke check).

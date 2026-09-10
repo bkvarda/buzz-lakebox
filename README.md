@@ -249,8 +249,10 @@ additional catalog/schema pairs in `resource`.
 Remote entries run through the embedded, pinned `bzhttpmcp` bridge. It accepts
 only typed same-workspace endpoints, requires HTTPS, forwards JSON and SSE
 Streamable HTTP responses, tracks MCP session IDs, and reads host/token only
-from `DATABRICKS_HOST`/`DATABRICKS_TOKEN`. `bzmux` gives each remote child only
-those two variables; it does not receive the Buzz private key or auth tag.
+from `DATABRICKS_HOST`/`DATABRICKS_TOKEN`. A provider-owned launcher restores
+the 0600 launch environment after the agent runtime's MCP `env_clear`; `bzmux`
+then gives each remote child only those two variables, never the Buzz private
+key or auth tag.
 Custom URLs and literal secret/env maps are not part of schema v1.
 
 Managed MCP is currently allowed only with `inference_auth: "env"` and
@@ -261,7 +263,7 @@ sandbox creator's owner-level credential to configured tools.
 ## Synchronizing Databricks agent skills
 
 `provider_config.skills_config` accepts compact `buzz-skills` v1 JSON. It runs
-`databricks aitools install` noninteractively in `--skills-only` mode, validates
+`databricks aitools install --path` noninteractively in raw-skill mode, validates
 the staged tree, and publishes safe skill directories into the persistent
 canonical `.agents/skills` path:
 

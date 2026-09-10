@@ -331,6 +331,27 @@ func (r *DeployRequest) ApplyLaunch() error {
 	r.Agent.Parallelism = 1
 	r.Agent.IdleTimeoutSeconds = 0
 	r.Agent.MaxTurnDurationSecs = 0
+	r.Agent.RespondTo = "owner-only"
+	r.Agent.RespondToAllowlist = nil
+	// These keys are provider-owned in the rendered sandbox environment, so
+	// they were intentionally removed from env above. Project their resolved
+	// launch values onto the typed legacy fields rather than falling back to
+	// stale pre-launch payload fields or emitting an empty CLI argument.
+	resolvedLaunchValue := func(key string) (string, bool) {
+		value, ok := launch.PolicyEnv[key]
+		if override, exists := launch.Env[key]; exists {
+			return override, true
+		}
+		return value, ok
+	}
+	if value, ok := resolvedLaunchValue("BUZZ_ACP_RESPOND_TO"); ok && value != "" {
+		r.Agent.RespondTo = value
+	}
+	if r.Agent.RespondTo == "allowlist" {
+		if value, ok := resolvedLaunchValue("BUZZ_ACP_RESPOND_TO_ALLOWLIST"); ok && value != "" {
+			r.Agent.RespondToAllowlist = strings.Split(value, ",")
+		}
+	}
 	if value, ok := env["BUZZ_ACP_SYSTEM_PROMPT"]; ok {
 		r.Agent.SystemPrompt = value
 	}

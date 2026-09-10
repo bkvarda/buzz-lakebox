@@ -127,8 +127,10 @@ func TestVerifyMCP_Direct_UnknownCommandNonEmpty(t *testing.T) {
 	}
 }
 
-// (7) protocolVersion mismatch in MUX mode → non-zero (pins the retained gate).
-func TestVerifyMCP_Mux_ProtocolVersionMismatch(t *testing.T) {
+// (7) Children may select different protocol versions from the one offered.
+// Databricks managed MCP currently does this for Skills while SQL echoes the
+// offered version, and both are valid children of one multiplexer.
+func TestVerifyMCP_Mux_AllowsNegotiatedProtocolVersions(t *testing.T) {
 	writeMuxConfig(t, &muxcfg.Config{
 		Servers: []muxcfg.Server{
 			muxFakeSrv("buzz-dev-mcp", "shell,read_file,view_image,str_replace,todo,_Stop,_PostCompact", nil),
@@ -138,12 +140,8 @@ func TestVerifyMCP_Mux_ProtocolVersionMismatch(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	err := runVerifyMCP(ctx, "")
-	if err == nil {
-		t.Fatal("expected mux verify to fail on a protocolVersion mismatch")
-	}
-	if !strings.Contains(err.Error(), "protocolVersion") && !strings.Contains(err.Error(), "mismatch") {
-		t.Fatalf("error should mention the protocolVersion mismatch, got: %v", err)
+	if err := runVerifyMCP(ctx, ""); err != nil {
+		t.Fatalf("negotiated child protocol versions should pass: %v", err)
 	}
 }
 

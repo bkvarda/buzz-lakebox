@@ -39,6 +39,7 @@ func TestDeploy_McpMux_StepsInOrder(t *testing.T) {
 	assertOrder(t, seq, []string{
 		"SSH:install-exec",
 		"SSH:mux-bin-write",
+		"SSH:mux-launcher-write",
 		"SSH:mux-cfg-write",
 		"SSH:mcp-verify",
 		"SSH:verify-exec",
@@ -70,7 +71,7 @@ func TestDeploy_McpMux_StepsAfterExtraBins(t *testing.T) {
 	assertOrder(t, seq, []string{
 		"SSH:install-exec",
 		"SSH:extra-bins-write", "SSH:extra-bins-exec",
-		"SSH:mux-bin-write", "SSH:mux-cfg-write", "SSH:mcp-verify",
+		"SSH:mux-bin-write", "SSH:mux-launcher-write", "SSH:mux-cfg-write", "SSH:mcp-verify",
 		"SSH:verify-exec",
 		"SSH:launch-exec",
 	})
@@ -93,7 +94,7 @@ func TestDeploy_McpMux_AbsentForNoMcpServers(t *testing.T) {
 
 	seq := callSequence(h.events())
 	for _, unwanted := range []string{
-		"SSH:mux-bin-write", "SSH:mux-cfg-write", "SSH:mux-selftest",
+		"SSH:mux-bin-write", "SSH:mux-launcher-write", "SSH:mux-cfg-write", "SSH:mux-selftest",
 		"SSH:mcp-bin-write", "SSH:mcp-verify",
 	} {
 		assertNotContains(t, seq, unwanted)
@@ -128,7 +129,7 @@ func TestDeploy_McpMux_AbsentForSingleMcpServer(t *testing.T) {
 		"SSH:launch-exec",
 	})
 	// ...but never writes the mux config or runs the mux selftest (direct mode).
-	for _, unwanted := range []string{"SSH:mux-cfg-write", "SSH:mux-selftest"} {
+	for _, unwanted := range []string{"SSH:mux-launcher-write", "SSH:mux-cfg-write", "SSH:mux-selftest"} {
 		assertNotContains(t, seq, unwanted)
 	}
 }
@@ -182,16 +183,16 @@ func TestDeploy_McpDirect_VerifyFailure(t *testing.T) {
 	}
 }
 
-// TestResolveMcpCommand_McpMux asserts resolveMcpCommand returns "bzmux" for
-// a 2-entry mcp_servers payload (McpMux mode, Increment 2).
+// TestResolveMcpCommand_McpMux asserts resolveMcpCommand returns the
+// provider-owned environment launcher for a 2-entry payload.
 func TestResolveMcpCommand_McpMux(t *testing.T) {
 	cfg := payload.ProviderConfig{McpServers: []string{"buzz-dev-mcp", "shellbox-mcp"}}
 	got, err := resolveMcpCommand(cfg)
 	if err != nil {
 		t.Fatalf("McpMux: unexpected error: %v", err)
 	}
-	if got != payload.MuxBinaryName {
-		t.Fatalf("McpMux: got %q, want %q", got, payload.MuxBinaryName)
+	if got != install.MuxLaunchName {
+		t.Fatalf("McpMux: got %q, want %q", got, install.MuxLaunchName)
 	}
 }
 
@@ -321,7 +322,7 @@ func TestDeploy_ManagedMCPWritesTypedBridgeAndLeastPrivilegeConfig(t *testing.T)
 		t.Fatal(err)
 	}
 
-	var bridgeWritten, configChecked bool
+	var bridgeWritten, launcherChecked, configChecked bool
 	for _, e := range h.events() {
 		if e.kind != "SSH" {
 			continue
@@ -329,6 +330,9 @@ func TestDeploy_ManagedMCPWritesTypedBridgeAndLeastPrivilegeConfig(t *testing.T)
 		switch e.sshTag {
 		case "http-mcp-bin-write":
 			bridgeWritten = len(e.stdin(t)) > 4 && strings.HasPrefix(e.stdin(t), "\x7fELF")
+		case "mux-launcher-write":
+			launcher := e.stdin(t)
+			launcherChecked = strings.Contains(launcher, nest.EnvFilePath) && strings.Contains(launcher, install.MuxBinPath) && !strings.Contains(launcher, "dapi-own")
 		case "mux-cfg-write":
 			var cfg muxcfg.Config
 			if err := json.Unmarshal([]byte(e.stdin(t)), &cfg); err != nil {
@@ -354,7 +358,7 @@ func TestDeploy_ManagedMCPWritesTypedBridgeAndLeastPrivilegeConfig(t *testing.T)
 			configChecked = true
 		}
 	}
-	if !bridgeWritten || !configChecked {
-		t.Fatalf("bridgeWritten=%v configChecked=%v", bridgeWritten, configChecked)
+	if !bridgeWritten || !launcherChecked || !configChecked {
+		t.Fatalf("bridgeWritten=%v launcherChecked=%v configChecked=%v", bridgeWritten, launcherChecked, configChecked)
 	}
 }

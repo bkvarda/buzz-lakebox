@@ -32,7 +32,7 @@ func TestBuildSkillsInstallScriptCommandAndStaticSecurity(t *testing.T) {
 	}
 	for _, want := range []string{
 		"#!/bin/sh\nset -eu\numask 077",
-		`databricks aitools install --skills-only --path "$STAGING" --output json --skills 'sql-helper,catalog.reader' --experimental`,
+		`databricks aitools install --path "$STAGING" --skills 'sql-helper,catalog.reader' --experimental`,
 		`DEST_ROOT="$HOME/.buzz/.agents/skills"`,
 		`if [ "$folded" = "buzz-cli" ]`,
 		`[ ! -f "$src/SKILL.md" ] || [ -L "$src/SKILL.md" ]`,
@@ -64,7 +64,7 @@ func TestBuildSkillsInstallScriptSelectionVariants(t *testing.T) {
 		t.Fatal(err)
 	}
 	command := lineContaining(script, "databricks aitools install")
-	if command != `databricks aitools install --skills-only --path "$STAGING" --output json > /dev/null` {
+	if command != `databricks aitools install --path "$STAGING" > /dev/null` {
 		t.Fatalf("unexpected default command: %s", command)
 	}
 	if strings.Contains(command, "--skills ") || strings.Contains(command, "--experimental") {

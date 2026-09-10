@@ -51,7 +51,7 @@ var knownServerTools = map[string][]string{
 //     that has no analog on the direct path).
 //   - mux (command == ""): read mcp-mux.json and spawn its children directly,
 //     exactly as --selftest does, keeping every selftest check (collision/`__`/
-//     64-byte budget, protocolVersion mismatch, JSON smoke check) PLUS the
+//     64-byte budget and JSON smoke check) PLUS the
 //     expected-names union of the known children.
 //
 // It returns nil on success and a non-nil error with a clear diagnostic on any

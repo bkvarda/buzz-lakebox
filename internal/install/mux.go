@@ -25,6 +25,16 @@ const MuxBinPath = MuxBinDir + "/bzmux"
 // env_clear the agent runtime applies.
 const MuxConfigPath = MuxBinDir + "/mcp-mux.json"
 
+// MuxLaunchPath is a tiny provider-owned launcher for bzmux. Buzz-agent
+// deliberately clears MCP child environments and forwards only its fixed
+// passthrough set, which excludes Databricks credentials. The launcher sources
+// the provider's 0600 env file inside the MCP child process, then execs bzmux;
+// bzmux still applies each configured child's strict allowlist.
+const (
+	MuxLaunchName = "bzmux-launch"
+	MuxLaunchPath = MuxBinDir + "/" + MuxLaunchName
+)
+
 // HTTPMCPBinPath is the embedded stdio-to-Streamable-HTTP bridge used by
 // typed Databricks managed MCP entries.
 const HTTPMCPBinPath = MuxBinDir + "/bzhttpmcp"

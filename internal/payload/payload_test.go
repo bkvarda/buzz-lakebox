@@ -104,8 +104,8 @@ func TestParseDeployRequest_CurrentLaunchIsAuthoritative(t *testing.T) {
 	    "env_vars":{"STALE":"must-not-return","BUZZ_ACP_SESSION_POLICY":"channel"},
 	    "launch":{
 	      "command":"buzz-agent","args":["--fresh"],
-	      "policy_env":{"BUZZ_ACP_AGENTS":"4","BUZZ_ACP_SYSTEM_PROMPT":"fresh prompt","BUZZ_ACP_SESSION_POLICY":"thread","BUZZ_ACP_LAZY_POOL":"true","BUZZ_ACP_AGENT_COMMAND":"spoof"},
-	      "env":{"USER_KEY":"user-value","BUZZ_ACP_SESSION_POLICY":"user-thread","BUZZ_PRIVATE_KEY":"spoof","BUZZ_ACP_RELAY_OBSERVER":"false"},
+	      "policy_env":{"BUZZ_ACP_AGENTS":"4","BUZZ_ACP_SYSTEM_PROMPT":"fresh prompt","BUZZ_ACP_SESSION_POLICY":"thread","BUZZ_ACP_LAZY_POOL":"true","BUZZ_ACP_RESPOND_TO":"allowlist","BUZZ_ACP_RESPOND_TO_ALLOWLIST":"owner-a,owner-b","BUZZ_ACP_AGENT_COMMAND":"spoof"},
+	      "env":{"USER_KEY":"user-value","BUZZ_ACP_SESSION_POLICY":"user-thread","BUZZ_ACP_RESPOND_TO":"anyone","BUZZ_PRIVATE_KEY":"spoof","BUZZ_ACP_RELAY_OBSERVER":"false"},
 	      "owner_pubkey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	    }
 	  }
@@ -132,13 +132,38 @@ func TestParseDeployRequest_CurrentLaunchIsAuthoritative(t *testing.T) {
 	if got := req.Agent.EnvVars["USER_KEY"]; got != "user-value" {
 		t.Fatalf("launch.env missing user value: %q", got)
 	}
-	for _, key := range []string{"BUZZ_ACP_AGENT_COMMAND", "BUZZ_PRIVATE_KEY", "BUZZ_ACP_RELAY_OBSERVER"} {
+	if req.Agent.RespondTo != "anyone" || len(req.Agent.RespondToAllowlist) != 0 {
+		t.Fatalf("launch response policy not projected: respond_to=%q allowlist=%v", req.Agent.RespondTo, req.Agent.RespondToAllowlist)
+	}
+	for _, key := range []string{"BUZZ_ACP_AGENT_COMMAND", "BUZZ_PRIVATE_KEY", "BUZZ_ACP_RELAY_OBSERVER", "BUZZ_ACP_RESPOND_TO", "BUZZ_ACP_RESPOND_TO_ALLOWLIST"} {
 		if _, ok := req.Agent.EnvVars[key]; ok {
 			t.Fatalf("provider-owned key %s must be stripped from lower tiers", key)
 		}
 	}
 	if err := req.Validate(); err != nil {
 		t.Fatalf("current launch should validate: %v", err)
+	}
+}
+
+func TestParseDeployRequest_CurrentLaunchProjectsAllowlist(t *testing.T) {
+	body := `{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","launch":{"command":"buzz-agent","env":{},"policy_env":{"BUZZ_ACP_RESPOND_TO":"allowlist","BUZZ_ACP_RESPOND_TO_ALLOWLIST":"owner-a,owner-b"}}}}`
+	req, err := ParseDeployRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Agent.RespondTo != "allowlist" || len(req.Agent.RespondToAllowlist) != 2 || req.Agent.RespondToAllowlist[0] != "owner-a" || req.Agent.RespondToAllowlist[1] != "owner-b" {
+		t.Fatalf("response policy = %q %v, want projected allowlist", req.Agent.RespondTo, req.Agent.RespondToAllowlist)
+	}
+}
+
+func TestParseDeployRequest_CurrentLaunchDefaultsRespondToOwnerOnly(t *testing.T) {
+	body := `{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","respond_to":"stale","respond_to_allowlist":["stale"],"launch":{"command":"buzz-agent","env":{},"policy_env":{}}}}`
+	req, err := ParseDeployRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Agent.RespondTo != "owner-only" || len(req.Agent.RespondToAllowlist) != 0 {
+		t.Fatalf("response policy = %q %v, want owner-only and empty", req.Agent.RespondTo, req.Agent.RespondToAllowlist)
 	}
 }
 
