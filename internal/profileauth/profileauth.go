@@ -229,7 +229,7 @@ func validateProfile(profile string) error {
 		return errors.New("databricks profile is required")
 	}
 	if !validText(profile) || strings.TrimSpace(profile) != profile {
-		return errors.New("Databricks profile is malformed")
+		return errors.New("databricks profile is malformed")
 	}
 	return nil
 }

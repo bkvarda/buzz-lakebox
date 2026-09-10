@@ -45,19 +45,19 @@ var _ mcpops.Prober = (*Adapter)(nil)
 // retained only for request authorization and error redaction.
 func New(host, token string) (*Adapter, error) {
 	if strings.TrimSpace(host) == "" {
-		return nil, errors.New("Databricks host is required")
+		return nil, errors.New("databricks host is required")
 	}
 	if !validConnectionValue(host) {
-		return nil, errors.New("Databricks host is invalid")
+		return nil, errors.New("databricks host is invalid")
 	}
 	if err := httpmcp.ValidateWorkspaceHost(host); err != nil {
-		return nil, errors.New("Databricks host is invalid")
+		return nil, errors.New("databricks host is invalid")
 	}
 	if token == "" {
-		return nil, errors.New("Databricks token is required")
+		return nil, errors.New("databricks token is required")
 	}
 	if !validConnectionValue(token) || httpmcp.ValidateHeaderValue(token) != nil {
-		return nil, errors.New("Databricks token is invalid")
+		return nil, errors.New("databricks token is invalid")
 	}
 	return &Adapter{
 		host:         host,
