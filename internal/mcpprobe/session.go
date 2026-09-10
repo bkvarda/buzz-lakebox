@@ -206,7 +206,7 @@ func (s *session) writeJSON(value interface{}) error {
 }
 
 func (s *session) readLoop(stdout io.ReadCloser) {
-	defer stdout.Close()
+	defer func() { _ = stdout.Close() }()
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), maxFrameBytes)
 	for scanner.Scan() {

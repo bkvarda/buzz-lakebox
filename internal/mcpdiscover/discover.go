@@ -114,13 +114,13 @@ var _ mcpops.Discoverer = (*Adapter)(nil)
 // New constructs an adapter using an injected command runner.
 func New(profile string, runner Runner, options ...Option) (*Adapter, error) {
 	if strings.TrimSpace(profile) == "" {
-		return nil, errors.New("Databricks profile is required")
+		return nil, errors.New("databricks profile is required")
 	}
 	if hasControl(profile) {
-		return nil, errors.New("Databricks profile contains control characters")
+		return nil, errors.New("databricks profile contains control characters")
 	}
 	if runner == nil {
-		return nil, errors.New("Databricks CLI runner is required")
+		return nil, errors.New("databricks CLI runner is required")
 	}
 
 	opts := adapterOptions{}
