@@ -100,7 +100,7 @@ func New(profile string, runner Runner, options ...Option) (*Resolver, error) {
 		return nil, err
 	}
 	if runner == nil {
-		return nil, errors.New("Databricks CLI runner is required")
+		return nil, errors.New("databricks CLI runner is required")
 	}
 
 	opts := resolverOptions{}
@@ -226,7 +226,7 @@ func decodeOne(data []byte, dst any) error {
 
 func validateProfile(profile string) error {
 	if profile == "" || strings.TrimSpace(profile) == "" {
-		return errors.New("Databricks profile is required")
+		return errors.New("databricks profile is required")
 	}
 	if !validText(profile) || strings.TrimSpace(profile) != profile {
 		return errors.New("Databricks profile is malformed")

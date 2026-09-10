@@ -194,7 +194,7 @@ func allKinds() map[mcpconfig.Kind]bool {
 // closed rather than presenting an incomplete result as authoritative.
 func (a *Adapter) Discover(ctx context.Context) ([]mcpops.Identifier, error) {
 	if a == nil || a.runner == nil {
-		return nil, errors.New("Databricks CLI discovery adapter is not configured")
+		return nil, errors.New("databricks CLI discovery adapter is not configured")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
