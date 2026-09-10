@@ -31,6 +31,69 @@ Setting `provider_config.inference_auth` to `"sandbox"` opts into zero-token inf
 
 Auth: the operator's existing `~/.databrickscfg` profile, selected via `provider_config.profile`, is used to provision the sandbox itself. The agent's own inference auth is a separate knob, `provider_config.inference_auth` — see [Inference auth](#inference-auth-bring-a-token-default-or-zero-token-opt-in) above. The Databricks Sandbox preview is region-gated (verified in us-west-2).
 
+## Quick start for Buzz Desktop
+
+Buzz has a native extension point for remote execution providers: any trusted
+executable named `buzz-backend-<id>` is discovered and offered in the agent
+form's **Run on** selector. This project uses that interface; there is no
+separate plugin screen or manual provider registration.
+
+Lakebox and **Databricks v2** serve different purposes and are selected in two
+different parts of the same form:
+
+- **LLM provider → Databricks v2** chooses the workspace AI Gateway for model
+  inference.
+- **Run on → databricks-lakebox** moves the entire agent harness, MCP servers,
+  skills, and session execution into a Databricks Sandbox.
+
+### 1. Install the released provider
+
+Prerequisites are the [`databricks` CLI](https://docs.databricks.com/dev-tools/cli/)
+**1.8.0 or newer**, a configured `~/.databrickscfg` profile with Sandbox access,
+and a registered Sandbox SSH key (step 2 below).
+
+Download the archive for your OS and architecture plus `checksums.txt` from
+the [latest release](https://github.com/bkvarda/buzz-lakebox/releases/latest).
+Before extracting it, verify the archive from the download directory (set
+`archive` to its exact filename), then install the executable:
+
+```sh
+archive=buzz-backend-databricks-lakebox_0.2.0_darwin_arm64.tar.gz
+
+# Choose the verifier for your OS:
+grep "  $archive$" checksums.txt | shasum -a 256 -c -       # macOS
+# grep "  $archive$" checksums.txt | sha256sum -c -          # Linux
+
+mkdir -p ~/.local/bin
+tar -xzf "$archive" buzz-backend-databricks-lakebox
+install -m 0755 buzz-backend-databricks-lakebox ~/.local/bin/
+~/.local/bin/buzz-backend-databricks-lakebox version
+~/.local/bin/buzz-backend-databricks-lakebox doctor
+```
+
+Build-from-source installation is also available below.
+
+### 2. Authenticate and register the Sandbox SSH key
+
+```sh
+databricks auth login -p <profile> --host https://<workspace-url>
+databricks sandbox register -p <profile>
+~/.local/bin/buzz-backend-databricks-lakebox --profile <profile> doctor
+```
+
+Do not put a profile, workspace URL, token, or other environment-specific value
+inside `mcp_config` or `skills_config`. The profile belongs in the dedicated
+**Databricks CLI profile** field; inference credentials belong in the agent's
+masked environment-variable editor.
+
+### 3. Restart Buzz and create the agent
+
+Buzz Desktop snapshots provider discovery at launch. Fully quit and reopen it
+after installation, then follow [Setting up an agent in Buzz Desktop](#setting-up-an-agent-in-buzz-desktop).
+If `databricks-lakebox` is absent from **Run on**, confirm the binary is
+executable at `~/.local/bin/buzz-backend-databricks-lakebox`, rerun `doctor`,
+and restart Buzz again.
+
 ## Install from source
 
 ### Prerequisites
@@ -141,24 +204,115 @@ Moving the key breaks sandbox SSH on the previous workspace until you register b
 
 ## Setting up an agent in Buzz Desktop
 
-With the binary symlinked into `~/.local/bin`, **restart Buzz Desktop** (it snapshots its provider scan at launch), then create the agent:
+With the released binary installed at `~/.local/bin`, **restart Buzz Desktop**
+(it snapshots its provider scan at launch), then create the agent:
 
-1. **Create agent** → fill in name and instructions.
-2. **AI configuration** → *Customize for this agent*:
-   - **Agent harness**: Buzz Agent
-   - **LLM provider**: **Databricks v2** from the list — *not* "Custom provider…" (buzz-agent only understands the built-in provider ids, and v2 routes Claude/GPT models through the workspace AI Gateway)
-   - **Model**: pick from the discovered list or enter a custom gateway model id (e.g. `databricks-claude-opus-5`)
-3. **Environment variables** (Advanced) — depends on `inference_auth` (see [Inference auth](#inference-auth-bring-a-token-default-or-zero-token-opt-in) above):
-   - **`inference_auth` unset or `"env"` (default):**
-     - `DATABRICKS_HOST` — the workspace URL serving the model
-     - `DATABRICKS_TOKEN` — **required.** buzz-agent's default Databricks auth is a browser OAuth (PKCE) flow, which cannot happen inside a headless sandbox; without a token the agent deploys fine and then fails its first LLM call. Least-privilege option: a service-principal token with CAN QUERY on the gateway endpoints.
-   - **`inference_auth: "sandbox"`:** leave both unset. The provider derives them from the sandbox's baked creator-identity `~/.databrickscfg` at every launch; only set them here if you want to override the derived credential — explicit env vars always win.
+1. Open **Agents** and choose **Create agent**. Fill in the name and day-to-day
+   instructions.
+2. Under **AI configuration**, choose **Customize for this agent**. For the
+   simplest fully configurable path:
+   - **Agent harness:** Buzz Agent
+   - **LLM provider:** **Databricks v2** — *not* Custom provider. Databricks v2
+     routes Claude/GPT models through the workspace AI Gateway; Lakebox is the
+     separate run destination selected in step 4.
+   - **Model:** select a discovered gateway model or enter its model ID.
 
-   Switching an **existing** agent's sandbox from env mode to sandbox mode requires deleting the sandbox first (`databricks sandbox delete <id>`) and redeploying fresh: that sandbox's PAT-reset stub already clobbered the baked cfg during its earlier env-mode deploy, so redeploying it in place fails at deploy time with `[provision.sandbox_auth]` (cause: stub marker present — see [`docs/RUNBOOK.md`](docs/RUNBOOK.md#zero-token-inference-auth-inference_auth-sandbox)).
-4. **Run on** → select `databricks-lakebox`. (The section only appears when at least one `buzz-backend-*` binary is discoverable; if it's missing, re-check the symlink and restart the desktop.)
-5. **Create agent** — the deploy takes a couple of minutes on the first run (it downloads and installs the Buzz `.deb` into the sandbox), and is an idempotent update-in-place on redeploys.
+   Claude Code and Codex harnesses can also run in Lakebox, but their current
+   adapters do not consume this exact model selection: Claude uses its adapter
+   default to avoid gateway-ID rewriting, and Codex uses the provider's fixed,
+   live-verified Codex model. See [`docs/BUZZ_DESKTOP_UX.md`](docs/BUZZ_DESKTOP_UX.md)
+   for the current compatibility matrix and the proposed unified UI. Goose is
+   not accepted until its complete runtime path is separately live-proven.
+3. Open **Advanced → Environment variables**. For the recommended default
+   `inference_auth=env`, add:
+   - `DATABRICKS_HOST` — the workspace URL serving the model and managed MCP.
+   - `DATABRICKS_TOKEN` — **required inside the headless sandbox.** Buzz's
+     browser OAuth flow cannot run there. Prefer a scoped service-principal or
+     other least-privilege token with only the permissions the agent needs.
 
-Talk to the agent by **@mentioning it in a channel it's a member of** (`respond_to` defaults to owner-only, so mention it as the owner). The desktop's status indicators for remote agents come from relay observer frames, which the rendered env enables (`BUZZ_ACP_RELAY_OBSERVER=true`).
+   These instructions apply to Buzz Agent. Claude and Codex use the same
+   `DATABRICKS_HOST`/`DATABRICKS_TOKEN` pair as provider inputs, which Lakebox
+   translates into their adapter-specific endpoint configuration.
+4. Still under **Advanced**, set **Run on** to **databricks-lakebox**. Buzz probes
+   the executable and renders these provider-owned fields directly in the form:
+
+   | Buzz field | What to enter |
+   |---|---|
+   | **Databricks CLI profile** | The local profile used to create and operate the Sandbox. Leave empty only if the provider's default profile is correct. |
+   | **Inference auth** | `env` (recommended) or `sandbox` (owner-credential opt-in described below). |
+   | **Idle timeout** | Optional duration such as `30m` or `2h`; empty means no autostop. |
+   | **Managed MCP servers (JSON)** | Optional compact `buzz-managed-mcp` v1 JSON. Use the discover/validate/probe flow below instead of writing it blind. |
+   | **Synchronized Databricks skills (JSON)** | Optional compact `buzz-skills` v1 JSON for a validated `aitools` skill sync. |
+
+5. Choose **Create agent**. The first deployment normally takes a couple of
+   minutes while the provider creates the Sandbox and installs the pinned Buzz
+   harness. Editing and saving the agent redeploys idempotently into the mapped
+   Sandbox.
+6. Add the agent to a channel, then **@mention it**. `respond_to` defaults to
+   owner-only, so the owner mention is the simplest first test.
+
+### Adding managed MCP from the Buzz form
+
+The current Buzz form is native, but its third-party provider schema renderer
+accepts scalar fields only. For now, use the provider CLI as the safe resource
+picker/preflight and paste only its compact `config` value into **Managed MCP
+servers (JSON)**:
+
+```sh
+PROVIDER="$HOME/.local/bin/buzz-backend-databricks-lakebox"
+
+# Discover resources visible to this profile. Catalog-backed kinds are bounded
+# to each explicitly named catalog.schema scope.
+"$PROVIDER" --profile <profile> mcp discover \
+  --kind sql,genie,ai-search,functions,mcp-service,skills \
+  --scope <catalog>.<schema> --emit-config
+
+# Save the returned `config` string as mcp.json, then validate and live-probe it.
+# Both commands return JSON; `config validate` returns the canonical compact
+# `config` string to paste into Buzz.
+"$PROVIDER" config validate --mcp-file mcp.json
+"$PROVIDER" --profile <profile> mcp probe \
+  --mcp-file mcp.json --force-refresh --timeout 30s
+```
+
+Only paste the value of the JSON result's `config` property, beginning with
+`{"schema":"buzz-managed-mcp",...}`—not the outer command result. A successful
+probe performs real MCP `initialize` and `tools/list` calls and reports each
+server's tool count without printing the profile, host, or token.
+
+Example for SQL plus one governed Skills scope:
+
+```json
+{"schema":"buzz-managed-mcp","version":1,"servers":[{"name":"sql","kind":"sql","auth":"env"},{"name":"skills","kind":"skills","resource":["my_catalog","my_schema"],"auth":"env"}]}
+```
+
+Paste this separately into **Synchronized Databricks skills (JSON)** when local
+`aitools` skills should also be synchronized into the Sandbox:
+
+```json
+{"schema":"buzz-skills","version":1,"aitools":{"skills":["bundles","sql"],"experimental":false,"collision_policy":"fail"}}
+```
+
+Validate it before saving the agent:
+
+```sh
+"$PROVIDER" config validate --skills-file skills.json
+```
+
+For `inference_auth=sandbox`, leave `DATABRICKS_HOST` and `DATABRICKS_TOKEN`
+unset. The provider derives them from the Sandbox's baked creator-identity
+credential. This lets the agent act as you across the workspace and is
+therefore an explicit higher-risk opt-in; managed MCP and managed skill sync
+are refused in this mode. Switching an **existing** env-auth Sandbox to sandbox
+auth requires deleting it and deploying a fresh one because the earlier
+env-auth deployment neutralized its baked credential. See
+[`docs/RUNBOOK.md`](docs/RUNBOOK.md#zero-token-inference-auth-inference_auth-sandbox).
+
+The desktop's status indicators for remote agents come from relay observer
+frames, which the rendered environment enables (`BUZZ_ACP_RELAY_OBSERVER=true`).
+Lifecycle recovery is currently performed with the provider CLI because Buzz's
+provider protocol does not yet expose start/stop/status/logs operations; see
+[Operating a deployed agent](#operating-a-deployed-agent).
 
 ## Operating a deployed agent
 
@@ -186,6 +340,7 @@ Full research (buzz architecture, omnigent's Lakebox integration patterns, live 
 - [`OMNIGENT_DATABRICKS_SANDBOX_PATTERNS.md`](docs/OMNIGENT_DATABRICKS_SANDBOX_PATTERNS.md) — prior art: omnigent's lakebox launcher contract, bootstrap, auth gotchas
 - [`LAKEBOX_LIVE_PROBE_RESULTS.md`](docs/LAKEBOX_LIVE_PROBE_RESULTS.md) — live-verified API surface, lifecycle timings, egress, persistence semantics, end-to-end `buzz` CLI ↔ relay proof from inside a sandbox
 - [`UPSTREAM_BUZZ_GAPS.md`](docs/UPSTREAM_BUZZ_GAPS.md) — live-operations findings at the provider seam (misleading status, no recovery affordance, lost mentions, missing `backend_agent_id` echo, protocol v2), drafted as future block/buzz contributions
+- [`BUZZ_DESKTOP_UX.md`](docs/BUZZ_DESKTOP_UX.md) — why Lakebox remains a run destination, the current harness/model compatibility matrix, and the generic Buzz UI/protocol extension for a unified configurator
 - [`INTERNAL_ACCEPTANCE.md`](docs/INTERNAL_ACCEPTANCE.md) — the hard boundary between public hermetic CI and manual internal-workspace acceptance, including the double opt-in and sanitized evidence rules
 
 ## Key facts the design leans on (live-verified 2026-07-24)

@@ -71,13 +71,13 @@ func TestInfo_FrozenShape(t *testing.T) {
 				},
 				"mcp_config": map[string]any{
 					"type":        "string",
-					"title":       "Managed MCP configuration",
-					"description": "Optional compact versioned JSON. Server hosts are derived from the selected workspace; credentials and profile names must not appear in this value.",
+					"title":       "Managed MCP servers (JSON)",
+					"description": "Optional compact buzz-managed-mcp v1 JSON. Generate it with `mcp discover --emit-config`, then run `config validate` and `mcp probe` before pasting. Hosts, credentials, and profile names must not appear here.",
 				},
 				"skills_config": map[string]any{
 					"type":        "string",
-					"title":       "Databricks skills configuration",
-					"description": "Optional compact buzz-skills v1 JSON for a noninteractive databricks aitools --skills-only sync. Existing unmanaged skills are never overwritten.",
+					"title":       "Synchronized Databricks skills (JSON)",
+					"description": "Optional compact buzz-skills v1 JSON for a validated databricks aitools raw-skill sync. Run `config validate --skills-file` before pasting; existing unmanaged skills are never overwritten.",
 				},
 			},
 			"required": []string{},
