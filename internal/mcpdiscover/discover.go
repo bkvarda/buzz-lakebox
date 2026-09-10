@@ -350,6 +350,12 @@ func (a *Adapter) discoverMCPServices(ctx context.Context) ([]mcpops.Identifier,
 }
 
 func scopedName(name string, scope Scope) (string, bool) {
+	// AI Gateway list responses use an AIP resource name such as
+	// `mcp-services/catalog.schema.service`; UC function APIs use either the
+	// bare object name or `catalog.schema.object`.
+	if slash := strings.LastIndex(name, "/"); slash >= 0 {
+		name = name[slash+1:]
+	}
 	parts := strings.Split(name, ".")
 	switch len(parts) {
 	case 1:

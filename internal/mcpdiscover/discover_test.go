@@ -281,6 +281,28 @@ func TestScopedResultsRequireSuccessfulListPermission(t *testing.T) {
 	}
 }
 
+func TestMCPServiceAIPResourceNameIsScoped(t *testing.T) {
+	fake := &fakeRunner{t: t, responses: []response{{
+		want:   command("ai-gateway", "list-mcp-services", "--parent", "schemas/catalog_a.schema_a"),
+		stdout: `[{"name":"mcp-services/catalog_a.schema_a.service_a"}]`,
+	}}}
+	adapter, err := mcpdiscover.New(fixtureProfile, fake,
+		mcpdiscover.WithKinds(mcpconfig.KindMCPService),
+		mcpdiscover.WithScopes(mcpdiscover.Scope{Catalog: "catalog_a", Schema: "schema_a"}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := mcpops.Discover(context.Background(), adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []mcpops.Identifier{mcpops.MCPServiceIdentifier("catalog_a", "schema_a", "service_a")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Discover() = %#v, want %#v", got, want)
+	}
+}
+
 func TestMalformedJSONUsesStdoutOnlyAndDoesNotEchoIt(t *testing.T) {
 	const sensitiveBody = `{"spaces":[{"space_id":"DATABRICKS_TOKEN=fixture-sensitive-value"}]`
 	fake := &fakeRunner{t: t, responses: []response{{
