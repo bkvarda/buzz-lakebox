@@ -92,10 +92,13 @@ func staticConfigSchema() map[string]any {
 			"inference_auth": map[string]any{
 				"type":    "string",
 				"title":   "Inference auth",
-				"default": "env",
-				"description": "env (default): you supply DATABRICKS_HOST/DATABRICKS_TOKEN in the agent's " +
-					"environment variables. sandbox: zero-token — the agent reuses the sandbox's built-in " +
-					"per-user credential and can act AS YOU across the whole workspace (opt-in security tradeoff).",
+				"default": "sandbox",
+				"description": "sandbox (new-agent default): zero-token — the agent reuses the sandbox's built-in " +
+					"creator credential and can act AS YOU across the whole workspace; arbitrary MCP servers and " +
+					"skill sync are blocked in this mode. The Databricks inference host/token fields selected by Buzz " +
+					"are not forwarded. env: you must supply DATABRICKS_HOST/DATABRICKS_TOKEN in the agent's " +
+					"environment variables for a narrower, least-privilege grant. Omitted legacy values " +
+					"still mean env; this default is persisted explicitly by Buzz for newly created agents.",
 			},
 			"idle_timeout": map[string]any{
 				"type":        "string",

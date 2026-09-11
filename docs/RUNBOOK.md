@@ -404,8 +404,9 @@ re-asserts it from `launch.sh` on any later relaunch.
 
 ## Zero-token inference auth (inference_auth: "sandbox")
 
-Setting `provider_config.inference_auth` to `"sandbox"` opts an agent into
-zero-token inference: instead of resetting the sandbox's baked
+New Buzz-created agents explicitly default `provider_config.inference_auth` to
+`"sandbox"`; hand-written and legacy payloads with the field omitted still use
+env mode. Sandbox mode enables zero-token inference: instead of resetting the sandbox's baked
 creator-identity PAT to a stub, the provider leaves `~/.databrickscfg`
 alone and derives `DATABRICKS_HOST`/`DATABRICKS_TOKEN` from it.
 

@@ -423,6 +423,50 @@ func TestProviderConfig_McpDirectCommand(t *testing.T) {
 	}
 }
 
+func TestParseDeployRequest_SandboxAuthDropsBuzzDatabricksInferencePair(t *testing.T) {
+	body := `{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","launch":{"command":"buzz-agent","env":{"DATABRICKS_HOST":"https://workspace.example","DATABRICKS_TOKEN":"must-not-survive","SAFE_SETTING":"kept"},"policy_env":{}}},"provider_config":{"inference_auth":"sandbox"}}`
+	req, err := ParseDeployRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"DATABRICKS_HOST", "DATABRICKS_TOKEN"} {
+		if _, ok := req.Agent.EnvVars[key]; ok {
+			t.Fatalf("sandbox-auth current launch retained %s", key)
+		}
+	}
+	if got := req.Agent.EnvVars["SAFE_SETTING"]; got != "kept" {
+		t.Fatalf("unrelated launch env = %q, want kept", got)
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("sanitized current launch should validate: %v", err)
+	}
+}
+
+func TestParseDeployRequest_EnvAuthKeepsBuzzDatabricksInferencePair(t *testing.T) {
+	body := `{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","launch":{"command":"buzz-agent","env":{"DATABRICKS_HOST":"https://workspace.example","DATABRICKS_TOKEN":"owner-supplied"},"policy_env":{}}},"provider_config":{"inference_auth":"env"}}`
+	req, err := ParseDeployRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Agent.EnvVars["DATABRICKS_HOST"] == "" || req.Agent.EnvVars["DATABRICKS_TOKEN"] == "" {
+		t.Fatalf("env auth must preserve the owner-supplied inference pair: %#v", req.Agent.EnvVars)
+	}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("env-auth current launch should validate: %v", err)
+	}
+}
+
+func TestParseDeployRequest_LegacySandboxAuthStillRejectsInferencePair(t *testing.T) {
+	body := `{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","agent_command":"buzz-agent","env_vars":{"DATABRICKS_HOST":"https://workspace.example"}},"provider_config":{"inference_auth":"sandbox"}}`
+	req, err := ParseDeployRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := req.Validate(); err == nil || !strings.Contains(err.Error(), "env_vars.DATABRICKS_HOST") {
+		t.Fatalf("legacy/operator sandbox payload must retain fail-loud host rejection, got: %v", err)
+	}
+}
+
 func TestParseDeployRequest_CurrentLaunchAbsentValuesDoNotFallBackToLegacy(t *testing.T) {
 	body := `{"op":"deploy","agent":{"relay_url":"wss://r","private_key_nsec":"nsec1x","auth_tag":"t","agent_command":"stale","system_prompt":"stale","model":"stale","provider":"stale","parallelism":99,"idle_timeout_seconds":88,"max_turn_duration_seconds":77,"env_vars":{"STALE":"yes"},"launch":{"command":"buzz-agent","args":[],"env":{},"policy_env":{}}}}`
 	req, err := ParseDeployRequest([]byte(body))
