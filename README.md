@@ -15,11 +15,13 @@ Buzz Desktop ──stdin JSON {op:"deploy",...}──> buzz-backend-databricks-l
                                           └─ buzz-acp ──WSS──> Buzz relay ──> agent runtime
 ```
 
-## Inference auth: bring a token (default) or zero-token (opt-in)
+## Inference auth: zero-token for new Buzz agents or bring a scoped token
 
-By default, the agent authenticates to the workspace AI Gateway with a token you supply: mint a personal access token or a scoped service-principal token and set `DATABRICKS_HOST`/`DATABRICKS_TOKEN` in the agent's environment variables (see [Setting up an agent in Buzz Desktop](#setting-up-an-agent-in-buzz-desktop) below). This is least-privilege and the recommended default — the token needs only CAN QUERY on the gateway endpoints, and the sandbox's baked creator-identity credential stays neutralized (reset to a stub, per [Key facts](#key-facts-the-design-leans-on-live-verified-2026-07-24)).
+The provider schema defaults **new Buzz-created agents** to `provider_config.inference_auth="sandbox"`, the only current zero-manual-token path. Buzz persists that value explicitly. The provider drops the Databricks inference host/token fields Buzz required for local model selection, then leaves the sandbox's baked creator-identity `~/.databrickscfg` in place and derives a fresh `DATABRICKS_HOST`/`DATABRICKS_TOKEN` pair from it at every launch. Stated bluntly: **the agent can act as you across the entire workspace**, not just call the AI Gateway. Arbitrary managed MCP and skill sync are refused beside that credential.
 
-Setting `provider_config.inference_auth` to `"sandbox"` opts into zero-token inference instead: no token is minted or set anywhere in setup. The provider leaves the sandbox's baked creator-identity `~/.databrickscfg` in place and derives `DATABRICKS_HOST`/`DATABRICKS_TOKEN` from it at every launch. Stated bluntly, because it's exactly why this is opt-in: **the agent can act as you across the entire workspace**, not just call the AI Gateway. Set it via the "Where to run" provider-config field in Buzz Desktop's create-agent dialog (rendered from this provider's `config_schema` — see [`docs/CONTRACT.md`](docs/CONTRACT.md) §4), or in the `provider_config` JSON for operator deploys. See [`docs/RUNBOOK.md`](docs/RUNBOOK.md#zero-token-inference-auth-inference_auth-sandbox) for how derivation and rotation tolerance work, and what happens when the baked credential can't be used.
+Wire compatibility is intentionally different from the create-form default: an omitted or empty `inference_auth` still means `env`. Existing agents and hand-written payloads therefore never gain creator-identity access merely by upgrading or redeploying.
+
+For a narrower grant, set `inference_auth="env"`, mint a personal access token or preferably a scoped service-principal token, and set `DATABRICKS_HOST`/`DATABRICKS_TOKEN` in the agent's environment variables (see [Setting up an agent in Buzz Desktop](#setting-up-an-agent-in-buzz-desktop) below). The token needs only the permissions the agent requires, such as CAN QUERY on selected gateway endpoints, and the sandbox's baked creator credential is neutralized. See [`docs/RUNBOOK.md`](docs/RUNBOOK.md#zero-token-inference-auth-inference_auth-sandbox) for derivation, rotation tolerance, and failure recovery.
 
 ## Provider protocol
 
@@ -29,7 +31,7 @@ Setting `provider_config.inference_auth` to `"sandbox"` opts into zero-token inf
 | `info` | Provider name/version/description |
 | start/status/logs/stop/undeploy | Not in Buzz's provider protocol yet ("v2"), so the desktop can't invoke them — all five are implemented as operator CLI subcommands instead (see [Operating a deployed agent](#operating-a-deployed-agent) and the [runbook](docs/RUNBOOK.md)) |
 
-Auth: the operator's existing `~/.databrickscfg` profile, selected via `provider_config.profile`, is used to provision the sandbox itself. The agent's own inference auth is a separate knob, `provider_config.inference_auth` — see [Inference auth](#inference-auth-bring-a-token-default-or-zero-token-opt-in) above. The Databricks Sandbox preview is region-gated (verified in us-west-2).
+Auth: the operator's existing `~/.databrickscfg` profile is used to provision the sandbox itself. An explicit `provider_config.profile` always wins; when it is empty, provider mode discovers local profile names without authenticating them, prefers the baked default when present, or selects the only discovered profile. It refuses to guess between multiple profiles. The agent's own inference auth is a separate knob, `provider_config.inference_auth` — see [Inference auth](#inference-auth-zero-token-for-new-buzz-agents-or-bring-a-scoped-token) above. The Databricks Sandbox preview is region-gated (verified in us-west-2).
 
 ## Quick start for Buzz Desktop
 
@@ -49,8 +51,9 @@ different parts of the same form:
 ### 1. Install the released provider
 
 Prerequisites are the [`databricks` CLI](https://docs.databricks.com/dev-tools/cli/)
-**1.8.0 or newer**, a configured `~/.databrickscfg` profile with Sandbox access,
-and a registered Sandbox SSH key (step 2 below).
+**1.8.0 or newer** and at least one configured `~/.databrickscfg` workspace
+profile with Sandbox access. Deployment discovers local profile names and
+registers the Sandbox SSH key automatically.
 
 Download the archive for your OS and architecture plus `checksums.txt` from
 the [latest release](https://github.com/bkvarda/buzz-lakebox/releases/latest).
@@ -73,13 +76,16 @@ install -m 0755 buzz-backend-databricks-lakebox ~/.local/bin/
 
 Build-from-source installation is also available below.
 
-### 2. Authenticate and register the Sandbox SSH key
+### 2. Authenticate a workspace profile
 
 ```sh
 databricks auth login -p <profile> --host https://<workspace-url>
-databricks sandbox register -p <profile>
 ~/.local/bin/buzz-backend-databricks-lakebox --profile <profile> doctor
 ```
+
+The provider calls `databricks sandbox register` during every deployment, so no
+separate registration command is required. `doctor` is optional diagnostics,
+not a prerequisite for creating an agent in Buzz.
 
 Do not put a profile, workspace URL, token, or other environment-specific value
 inside `mcp_config` or `skills_config`. The profile belongs in the dedicated
@@ -161,7 +167,9 @@ Tagged releases publish checksummed archives for macOS/Linux on amd64/arm64. Rel
 
 ### Choosing a Databricks profile
 
-The provider authenticates with a profile from `~/.databrickscfg` (create one with `databricks auth login -p <name> --host https://<workspace-url>`). There are three ways to select it, from most to least specific:
+The provider authenticates with a profile from `~/.databrickscfg` (create one with `databricks auth login -p <name> --host https://<workspace-url>`). Provider mode first runs `databricks auth profiles --skip-validate --output json`, which reads local profile metadata without validating credentials or contacting a workspace. It advertises the sorted profile names as a schema `enum`; current Buzz still renders the field as text, so an actual clickable dropdown requires Buzz renderer support.
+
+Selection is deterministic, from most to least specific:
 
 1. **Per-deploy, in the payload** — `provider_config.profile` in the JSON Buzz Desktop sends on stdin (or in the file given to `deploy --payload-file`). This always wins when set:
 
@@ -175,24 +183,23 @@ The provider authenticates with a profile from `~/.databrickscfg` (create one wi
    buzz-backend-databricks-lakebox --profile EXAMPLE_PROFILE doctor
    ```
 
-3. **Baked in at install time** — `make install PROFILE=EXAMPLE_PROFILE` stamps the fallback default (normally `DEFAULT`) into the binary via ldflags. This is the way to point Buzz Desktop at a specific profile when its payload doesn't set one, since no flags reach provider mode.
+3. **Automatic provider-mode selection** — when Buzz sends an empty profile, the provider prefers the baked default (normally `DEFAULT`) if that name was discovered; otherwise it selects the only discovered profile. If multiple profiles remain, deployment stops and lists their names rather than guessing. If local discovery fails or finds no profiles, the provider preserves the historical baked-default fallback so the existing preflight diagnostic remains authoritative. `make install PROFILE=EXAMPLE_PROFILE` can still stamp a different baked fallback.
 
-Whichever way you choose, verify it resolves before deploying:
+For optional diagnostics, verify the selected profile resolves before deploying:
 
 ```sh
 buzz-backend-databricks-lakebox doctor            # uses the baked-in default
 buzz-backend-databricks-lakebox --profile EXAMPLE_PROFILE doctor
 ```
 
-### Register your sandbox SSH key
+### Sandbox SSH key registration
 
-Deploys run every in-sandbox step over `databricks sandbox ssh`, which needs your machine's sandbox key registered with the **target** workspace:
+Deploys run every in-sandbox step over `databricks sandbox ssh`. The provider
+automatically runs `databricks sandbox register -p <selected-profile>` before it
+creates or reuses a Sandbox, so ordinary Buzz setup needs no manual registration
+step.
 
-```sh
-databricks sandbox register -p <profile>
-```
-
-⚠️ **One key, one workspace.** The sandbox gateway is shared per region and binds a key to a single workspace identity. If the key is already registered elsewhere, registering (and deploying) fails with `this SSH key is already registered to another user`. Free it first on the workspace that owns it:
+⚠️ **One key, one workspace.** The sandbox gateway is shared per region and binds a key to a single workspace identity. If the key is already registered elsewhere, automatic registration (and deployment) fails with `this SSH key is already registered to another user`. Free it first on the workspace that owns it:
 
 ```sh
 databricks sandbox ssh-key list -p <other-profile>
@@ -223,8 +230,11 @@ With the released binary installed at `~/.local/bin`, **restart Buzz Desktop**
    live-verified Codex model. See [`docs/BUZZ_DESKTOP_UX.md`](docs/BUZZ_DESKTOP_UX.md)
    for the current compatibility matrix and the proposed unified UI. Goose is
    not accepted until its complete runtime path is separately live-proven.
-3. Open **Advanced → Environment variables**. For the recommended default
-   `inference_auth=env`, add:
+3. For the new-agent default `inference_auth=sandbox`, leave
+   `DATABRICKS_HOST` and `DATABRICKS_TOKEN` unset. The provider derives them
+   inside the Sandbox from its creator credential. To use a narrower grant,
+   change Inference auth to `env`, then open **Advanced → Environment variables**
+   and add:
    - `DATABRICKS_HOST` — the workspace URL serving the model and managed MCP.
    - `DATABRICKS_TOKEN` — **required inside the headless sandbox.** Buzz's
      browser OAuth flow cannot run there. Prefer a scoped service-principal or
@@ -238,8 +248,8 @@ With the released binary installed at `~/.local/bin`, **restart Buzz Desktop**
 
    | Buzz field | What to enter |
    |---|---|
-   | **Databricks CLI profile** | The local profile used to create and operate the Sandbox. Leave empty only if the provider's default profile is correct. |
-   | **Inference auth** | `env` (recommended) or `sandbox` (owner-credential opt-in described below). |
+   | **Databricks CLI profile** | The local profile used to create and operate the Sandbox. Enter one of the discovered profile names shown below the field, or leave empty for deterministic automatic selection. Current Buzz renders text; the provider also emits schema options for a future dropdown. |
+   | **Inference auth** | `sandbox` (new-agent zero-token default; creator-identity grant) or `env` (bring a scoped host/token pair). An omitted legacy value still means `env`. |
    | **Idle timeout** | Optional duration such as `30m` or `2h`; empty means no autostop. |
    | **Managed MCP servers (JSON)** | Optional compact `buzz-managed-mcp` v1 JSON. Use the discover/validate/probe flow below instead of writing it blind. |
    | **Synchronized Databricks skills (JSON)** | Optional compact `buzz-skills` v1 JSON for a validated `aitools` skill sync. |
@@ -302,8 +312,8 @@ Validate it before saving the agent:
 For `inference_auth=sandbox`, leave `DATABRICKS_HOST` and `DATABRICKS_TOKEN`
 unset. The provider derives them from the Sandbox's baked creator-identity
 credential. This lets the agent act as you across the workspace and is
-therefore an explicit higher-risk opt-in; managed MCP and managed skill sync
-are refused in this mode. Switching an **existing** env-auth Sandbox to sandbox
+the explicit higher-risk default for newly created Buzz agents; managed MCP and
+managed skill sync are refused in this mode. Switching an **existing** env-auth Sandbox to sandbox
 auth requires deleting it and deploying a fresh one because the earlier
 env-auth deployment neutralized its baked credential. See
 [`docs/RUNBOOK.md`](docs/RUNBOOK.md#zero-token-inference-auth-inference_auth-sandbox).

@@ -5,6 +5,7 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -73,53 +74,63 @@ type infoResponse struct {
 	ConfigSchema    any    `json:"config_schema"`
 }
 
-// configSchema is the additive, static JSON-Schema-ish object advertised in
-// the info response (docs/CONTRACT.md §4) for provider_config. Buzz Desktop
-// (block/buzz@8bb43d51) renders each property as a free-text create-agent
-// input (title/description/default; `required` gates the create button;
-// coerceConfigValues booleanizes the string "true" — hence string enum
-// types here, never boolean); older desktops ignore this field entirely.
-//
-// keep_workspace_pat and buzz_version are deliberately NOT advertised here
-// — they stay expert-only, documented in docs/CONTRACT.md.
-//
-// extra_binaries and mcp_servers are likewise intentionally omitted: they are
-// expert-only, non-scalar (array-valued) operator-CLI keys that Buzz Desktop's
-// scalar-only validate_provider_config would reject anyway, so advertising them
-// here would only surface an input the desktop cannot submit.
-var configSchema = map[string]any{
-	"type": "object",
-	"properties": map[string]any{
-		"profile": map[string]any{
-			"type":        "string",
-			"title":       "Databricks CLI profile",
-			"description": "Databricks CLI profile selection; empty = the build's baked default.",
+// staticConfigSchema returns the additive JSON-Schema-ish object advertised
+// for provider_config. A fresh value per request prevents dynamic profile
+// augmentation from mutating package state. Current Buzz renders scalar
+// properties as free-text inputs and ignores enum; enum is still emitted for
+// future renderer support while title/description/default remain text-input
+// compatible.
+func staticConfigSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"profile": map[string]any{
+				"type":        "string",
+				"title":       "Databricks CLI profile",
+				"description": "Enter a local Databricks CLI profile name, or leave empty for automatic selection. Current Buzz renders this as text; discovered choices require renderer support for a clickable dropdown.",
+			},
+			"inference_auth": map[string]any{
+				"type":    "string",
+				"title":   "Inference auth",
+				"default": "sandbox",
+				"description": "sandbox (new-agent default): zero-token — the agent reuses the sandbox's built-in " +
+					"creator credential and can act AS YOU across the whole workspace; arbitrary MCP servers and " +
+					"skill sync are blocked in this mode. The Databricks inference host/token fields selected by Buzz " +
+					"are not forwarded. env: you must supply DATABRICKS_HOST/DATABRICKS_TOKEN in the agent's " +
+					"environment variables for a narrower, least-privilege grant. Omitted legacy values " +
+					"still mean env; this default is persisted explicitly by Buzz for newly created agents.",
+			},
+			"idle_timeout": map[string]any{
+				"type":        "string",
+				"title":       "Idle timeout",
+				"description": "Duration like 30m or 2h; empty = no autostop (default).",
+			},
+			"mcp_config": map[string]any{
+				"type":        "string",
+				"title":       "Managed MCP servers (JSON)",
+				"description": "Optional compact buzz-managed-mcp v1 JSON. Generate it with `mcp discover --emit-config`, then run `config validate` and `mcp probe` before pasting. Hosts, credentials, and profile names must not appear here.",
+			},
+			"skills_config": map[string]any{
+				"type":        "string",
+				"title":       "Synchronized Databricks skills (JSON)",
+				"description": "Optional compact buzz-skills v1 JSON for a validated databricks aitools raw-skill sync. Run `config validate --skills-file` before pasting; existing unmanaged skills are never overwritten.",
+			},
 		},
-		"inference_auth": map[string]any{
-			"type":    "string",
-			"title":   "Inference auth",
-			"default": "env",
-			"description": "env (default): you supply DATABRICKS_HOST/DATABRICKS_TOKEN in the agent's " +
-				"environment variables. sandbox: zero-token — the agent reuses the sandbox's built-in " +
-				"per-user credential and can act AS YOU across the whole workspace (opt-in security tradeoff).",
-		},
-		"idle_timeout": map[string]any{
-			"type":        "string",
-			"title":       "Idle timeout",
-			"description": "Duration like 30m or 2h; empty = no autostop (default).",
-		},
-		"mcp_config": map[string]any{
-			"type":        "string",
-			"title":       "Managed MCP servers (JSON)",
-			"description": "Optional compact buzz-managed-mcp v1 JSON. Generate it with `mcp discover --emit-config`, then run `config validate` and `mcp probe` before pasting. Hosts, credentials, and profile names must not appear here.",
-		},
-		"skills_config": map[string]any{
-			"type":        "string",
-			"title":       "Synchronized Databricks skills (JSON)",
-			"description": "Optional compact buzz-skills v1 JSON for a validated databricks aitools raw-skill sync. Run `config validate --skills-file` before pasting; existing unmanaged skills are never overwritten.",
-		},
-	},
-	"required": []string{},
+		"required": []string{},
+	}
+}
+
+func dynamicConfigSchema(profiles []Profile, bakedDefault string) map[string]any {
+	schema := staticConfigSchema()
+	properties := schema["properties"].(map[string]any)
+	profile := properties["profile"].(map[string]any)
+	names := profileNames(profiles)
+	profile["enum"] = append([]string{""}, names...)
+	profile["description"] = "Enter a discovered local Databricks CLI profile name, or leave empty for automatic selection. Discovered profiles: " + strings.Join(names, ", ") + ". Current Buzz renders this as a text input; its renderer must support enum before these choices become a clickable dropdown."
+	if selected, ok := deterministicProfileDefault(bakedDefault, profiles); ok {
+		profile["default"] = selected
+	}
+	return schema
 }
 
 type errorResponse struct {
@@ -136,18 +147,41 @@ func newErrorResponse(msg string) errorResponse {
 	return errorResponse{Ok: false, Error: msg}
 }
 
+// Option configures provider-mode behavior. Run remains source-compatible with
+// existing three-argument callers through variadic options.
+type Option func(*runOptions)
+
+type runOptions struct {
+	discoverer   ProfileDiscoverer
+	bakedDefault string
+}
+
+// WithProfileDiscovery enables provider-owned local profile discovery and
+// selection. Production should pass a timeout-bound CLIProfileDiscoverer.
+func WithProfileDiscovery(discoverer ProfileDiscoverer, bakedDefault string) Option {
+	return func(options *runOptions) {
+		options.discoverer = discoverer
+		options.bakedDefault = bakedDefault
+	}
+}
+
 // Run reads one JSON request from r, dispatches it, and writes exactly one
-// JSON response line to w. It returns a non-nil error only for
-// unhandleable I/O failures (reading stdin or writing stdout) — per
-// CONTRACT.md §2, every request that can be parsed enough to route is a
-// "handled case" and always yields a written response with a nil error.
-func Run(r io.Reader, w io.Writer, deploy DeployFunc) error {
+// JSON response line to w. It returns a non-nil error only for unhandleable I/O
+// failures; handled cases always yield a response and nil error.
+func Run(r io.Reader, w io.Writer, deploy DeployFunc, opts ...Option) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return fmt.Errorf("read request: %w", err)
 	}
 
-	resp := route(data, deploy)
+	options := runOptions{bakedDefault: version.DefaultProfile}
+	for _, option := range opts {
+		if option != nil {
+			option(&options)
+		}
+	}
+
+	resp := route(data, deploy, options)
 
 	out, err := json.Marshal(resp)
 	if err != nil {
@@ -160,7 +194,7 @@ func Run(r io.Reader, w io.Writer, deploy DeployFunc) error {
 	return nil
 }
 
-func route(data []byte, deploy DeployFunc) any {
+func route(data []byte, deploy DeployFunc, options runOptions) any {
 	var env envelope
 	if err := json.Unmarshal(data, &env); err != nil {
 		return newErrorResponse(fmt.Sprintf("malformed request: could not parse JSON: %v", err))
@@ -168,16 +202,22 @@ func route(data []byte, deploy DeployFunc) any {
 
 	switch env.Op {
 	case opInfo:
+		schema := staticConfigSchema()
+		if options.discoverer != nil {
+			if profiles, err := options.discoverer.DiscoverProfiles(context.Background()); err == nil && len(profileNames(profiles)) > 0 {
+				schema = dynamicConfigSchema(profiles, options.bakedDefault)
+			}
+		}
 		return infoResponse{
 			Ok:              true,
 			Name:            Name,
 			Version:         version.Version,
 			ProtocolVersion: ProtocolVersion,
 			Description:     Description,
-			ConfigSchema:    configSchema,
+			ConfigSchema:    schema,
 		}
 	case opDeploy:
-		return handleDeploy(data, deploy)
+		return handleDeploy(data, deploy, options)
 	default:
 		return newErrorResponse(fmt.Sprintf("unknown op %q; supported: %s", env.Op, strings.Join(supportedOps, ", ")))
 	}
@@ -207,7 +247,7 @@ func MarshalDeployResult(agentID string, deployErr error) []byte {
 	return data
 }
 
-func handleDeploy(data []byte, deploy DeployFunc) any {
+func handleDeploy(data []byte, deploy DeployFunc, options runOptions) any {
 	if deploy == nil {
 		return newErrorResponse("deploy not implemented yet (M1)")
 	}
@@ -223,6 +263,18 @@ func handleDeploy(data []byte, deploy DeployFunc) any {
 	if err := req.Validate(); err != nil {
 		secrets := redact.SecretsFromPayload(req.Agent)
 		return newErrorResponse(redact.Redact(err.Error(), secrets))
+	}
+
+	// An explicit profile is authoritative and bypasses discovery entirely.
+	// This matters for both latency and security: selecting a named profile
+	// must not enumerate unrelated local configuration.
+	if req.ProviderConfig.Profile == "" && options.discoverer != nil {
+		profiles, discoveryErr := options.discoverer.DiscoverProfiles(context.Background())
+		selected, selectionErr := selectProfile(options.bakedDefault, profiles, discoveryErr)
+		if selectionErr != nil {
+			return newErrorResponse(selectionErr.Error())
+		}
+		req.ProviderConfig.Profile = selected
 	}
 
 	agentID, err := deploy(req)

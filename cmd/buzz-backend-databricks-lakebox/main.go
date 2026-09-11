@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -46,7 +47,13 @@ func newDeployer() *deployflow.Deployer {
 // JSON response on stdout.
 func runProvider() {
 	deployer := newDeployer()
-	if err := provider.Run(os.Stdin, os.Stdout, deployer.Deploy); err != nil {
+	discoverer := provider.NewCLIProfileDiscoverer(lakebox.DefaultBinPath(), 3*time.Second)
+	if err := provider.Run(
+		os.Stdin,
+		os.Stdout,
+		deployer.Deploy,
+		provider.WithProfileDiscovery(discoverer, version.DefaultProfile),
+	); err != nil {
 		// Only unhandleable I/O failures (reading stdin, writing stdout)
 		// reach here — every parseable request is a "handled case" per
 		// docs/CONTRACT.md §2 and already got a written {"ok":false,...}

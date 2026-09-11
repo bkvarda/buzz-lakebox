@@ -386,6 +386,19 @@ func (r *DeployRequest) ApplyLaunch() error {
 		}
 		r.Agent.MaxTurnDurationSecs = seconds
 	}
+
+	// Current Buzz requires DATABRICKS_HOST on the Databricks inference
+	// provider even when this run provider will use the Sandbox-native
+	// credential. That host (and any inherited token paired with it) arrives in
+	// launch.env after Desktop has used it for local model discovery. Sandbox
+	// auth must not forward either value: it derives an all-or-nothing pair from
+	// the selected Sandbox instead. Drop only this current-launch projection;
+	// legacy/operator payloads without a launch block still fail loudly in
+	// validateOwnerPATEnvVars, preserving the existing security contract.
+	if r.ProviderConfig.SandboxInferenceAuth() {
+		delete(r.Agent.EnvVars, "DATABRICKS_HOST")
+		delete(r.Agent.EnvVars, "DATABRICKS_TOKEN")
+	}
 	return nil
 }
 
